@@ -5,7 +5,7 @@ import importlib
 import os
 import sys
 
-from .meshing.upxo import probe_worker, resolve_python
+from .ebsd.upxo import probe_worker, resolve_python
 
 __all__ = ["main"]
 

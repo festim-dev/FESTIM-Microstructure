@@ -73,15 +73,21 @@ Import provenance uses format version 2 and stores crop bounds as a JSON array.
 With `force=False`, unsupported provenance versions trigger a fresh import.
 
 For separate import/inspection, use
-`fm.ebsd.convert.convert(ctf, "grains.npz", ...)` and
-`fm.ebsd.measure_against_ctf(ctf, "grains.npz")`. Low-level
-`fm.meshing.upxo.mesh_ebsd("grains.npz", ...)` meshes an existing native archive.
+`fm.ebsd.grains.convert(ctf, "grains.npz", ...)` and
+`fm.ebsd.grains.measure_against_ctf(ctf, "grains.npz")`.
+`fm.ebsd.upxo.mesh_ebsd("grains.npz", ...)` meshes an existing native archive.
 `force=False` checks source/settings/code and output hashes before cache reuse.
 A failed meshing worker retains the previous accepted mesh and writes a failure
 validation report and log.
 
-In the standard environment, the active interpreter runs both the mesher
-and solver. `FM_UPXO_PYTHON`, `Settings(python=...)`, or
-`UpxoMeshOptions(python=...)` can select a compatible importer/mesher interpreter.
+In the standard environment, the active interpreter runs both the mesher and
+solver. `EbsdOptions(python=...)` selects one interpreter for both worker stages.
+Otherwise the pipeline uses `FM_UPXO_PYTHON` or automatic discovery. Set
+`timeout` to adjust the per-invocation limit of 600 seconds. Standalone
+`convert` and `mesh_ebsd` accept `python` and `timeout` keyword arguments.
+
+`EbsdOptions(check_images=False)` skips import and mesh plots while producing
+the numeric reports. Standalone `convert` generates plots with
+`check_images=True`.
 `environment.yml` pins UPXO's evaluated commit and its DefDAP extra.
 UPXO remains an external dependency with its upstream GPL-3.0 license.

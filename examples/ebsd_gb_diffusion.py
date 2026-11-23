@@ -3,7 +3,7 @@ EBSD, in 2D.
 
 The mesh is UPXO's validated meshing of the raster, so the grain boundaries are
 the measured ones and each boundary's disorientation comes from the two grains'
-measured orientations. See :mod:`festim_microstructure.meshing.ebsd`.
+measured orientations. See :mod:`festim_microstructure.ebsd.topology`.
 
 Every measured grain carries a lattice species of its own and exchanges with the
 one network species at the rate ``k``; the network is the list of edge ids above

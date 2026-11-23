@@ -1,13 +1,8 @@
-"""Mesh EBSD rasters and rebuild the 2D GB topology required by FESTIM.
-
-The pipeline imports CTF grains through UPXO/DefDAP, meshes with UPXO, and derives
-edge connectivity, disorientation, lengths, and junctions from the mesh.
-"""
+"""Reconstruct grain-boundary topology from the tagged EBSD mesh."""
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 from mpi4py import MPI
@@ -15,170 +10,13 @@ from mpi4py import MPI
 import dolfinx
 import numpy as np
 
-from festim_microstructure.ebsd import convert as ebsd_convert
-from festim_microstructure.ebsd.orientation import (
-    cubic_disorientation_angle,
-    qconj,
-    qmul,
-)
-from festim_microstructure.ebsd.settings import Settings
-from festim_microstructure.formats.ebsd import read_ebsd
-from festim_microstructure.meshing.diagnostics import (
-    AreaReportOptions,
-    measure,
-    overlay,
-)
-from festim_microstructure.meshing.upxo import UpxoMeshOptions, mesh_ebsd
 from festim_microstructure.microstructure import _global_tag_values
-from festim_microstructure.plotting import draw_raster, scale_bar_ax, use_agg
+from festim_microstructure.msh4 import read_mesh
 
-__all__ = [
-    "BoundaryEdges",
-    "EbsdMicrostructure",
-    "EbsdOptions",
-    "mesh_diagnostics",
-    "read_extent",
-    "run_ebsd_pipeline",
-    "unit_name",
-    "write_network_png",
-]
+from .archive import read_ebsd, read_extent
+from .orientation import cubic_disorientation_angle, qconj, qmul
 
-
-UNIT_NAMES = {1e-9: "nm", 1e-6: "um", 1e-3: "mm", 1.0: "m"}
-
-
-def unit_name(unit):
-    """Display label for a metres-per-source-coordinate scale."""
-    return UNIT_NAMES.get(unit, "source units")
-
-
-@dataclass
-class EbsdOptions:
-    """Full CTF → UPXO/DefDAP grains → UPXO mesh → FESTIM checks."""
-
-    import_settings: Settings
-    unit: float = 1e-6
-    theta_min: float = 10.0
-    mesh: UpxoMeshOptions | None = None
-    stem: str = "poly"
-    check_images: bool = True
-
-    def __post_init__(self):
-        if self.mesh is None:
-            self.mesh = UpxoMeshOptions()
-        if not np.isfinite(self.unit) or self.unit <= 0:
-            raise ValueError("unit must be finite and positive")
-        if not np.isfinite(self.theta_min) or not 0 <= self.theta_min < 63:
-            raise ValueError("theta_min must be between 0 and 63 degrees")
-        if (
-            not self.stem
-            or Path(self.stem).name != self.stem
-            or self.stem in (".", "..")
-        ):
-            raise ValueError("stem must be a filename without directory components")
-
-
-def run_ebsd_pipeline(options, workdir: str | Path = "results", force=True):
-    """Import, mesh, check source geometry/orientations and load FESTIM tags.
-
-    Accepted meshes carry their native EBSD archive and SI metadata. Grain and
-    boundary tags are checked through the actual DOLFINx importer, and the
-    reconstructed FESTIM network is reported alongside geometry diagnostics.
-    """
-    options.__post_init__()
-    if not isinstance(options.mesh, UpxoMeshOptions):
-        raise TypeError("EbsdOptions.mesh must be UpxoMeshOptions")
-    # Only one rank imports/publishes files; all ranks load the accepted mesh.
-    # Propagate preparation failures before entering collective mesh import.
-    comm = MPI.COMM_WORLD
-    base, failure = None, None
-    if comm.rank == 0:
-        try:
-            workdir = Path(workdir)
-            workdir.mkdir(parents=True, exist_ok=True)
-            imported = ebsd_convert.convert(
-                settings=replace(
-                    options.import_settings,
-                    python=options.import_settings.python or options.mesh.python,
-                    diagnostics=options.import_settings.diagnostics
-                    or options.check_images,
-                ),
-                output=workdir / f"{options.stem}-import.npz",
-                force=force,
-            )
-            base = mesh_ebsd(
-                imported.archive,
-                replace(
-                    options.mesh,
-                    python=options.mesh.python or options.import_settings.python,
-                ),
-                workdir=workdir,
-                stem=options.stem,
-                unit=options.unit,
-                force=force,
-            )
-            mesh_diagnostics(
-                base, unit_name(options.unit), check_images=options.check_images
-            )
-        except Exception as exc:
-            failure = exc
-    base, failure = comm.bcast((base, failure), root=0)
-    if failure is not None:
-        raise failure
-    micro = EbsdMicrostructure.load(base, theta_min=options.theta_min, comm=comm)
-    micro.check_orientations()
-    if micro.mesh.comm.rank == 0:
-        report = dict(
-            n_grains=micro.n_grains,
-            n_edges=len(micro.edges),
-            interior_edges=int(micro.interior_mask.sum()),
-            surface_edges=micro.surface_edges,
-            triple_junctions=micro.triple_junctions,
-            theta_min=options.theta_min,
-            orientation_source=f"{base.name}-ebsd.npz",
-            extent_m=list(micro.extent),
-        )
-        Path(f"{base}-festim.json").write_text(json.dumps(report, indent=2) + "\n")
-    if options.check_images:
-        write_network_png(
-            base,
-            micro.mesh,
-            micro,
-            f"{base}-ebsd.npz",
-            options.unit,
-            unit_name(options.unit),
-        )
-    return base
-
-
-def read_extent(base):
-    """Domain width and height in metres from native mesh metadata."""
-    return tuple(json.loads(Path(f"{base}-metadata.json").read_text())["extent_m"])
-
-
-def mesh_diagnostics(base, unit_name="um", check_images=True):
-    """Compare final SI mesh with imported labels, in source display units."""
-    base = Path(base)
-    archive, msh4 = f"{base}-ebsd.npz", f"{base}.msh4"
-    scale = json.loads(Path(f"{base}-metadata.json").read_text())["unit"]
-    if check_images:
-        overlay(
-            archive,
-            msh4,
-            output=f"{base}-check-mesh.png",
-            unit=unit_name,
-            mesh_unit=scale,
-        )
-    return measure(
-        archive,
-        msh4,
-        AreaReportOptions(
-            csv=f"{base}-areachange.csv",
-            png=f"{base}-check-area.png" if check_images else None,
-            unit=unit_name,
-            mesh_unit=scale,
-        ),
-    )
+__all__ = ["BoundaryEdges", "EbsdMicrostructure"]
 
 
 def _ids(mask):
@@ -332,10 +170,8 @@ class EbsdMicrostructure:
         """Load the SI mesh, extent and orientation sidecars at the path stem.
 
         When using a communicator, call this on all of its ranks. ``rank`` is
-        the rank that reads the Gmsh file, as in ``formats.msh4.read_mesh``.
+        the rank that reads the Gmsh file, as in ``msh4.read_mesh``.
         """
-        from festim_microstructure.formats.msh4 import read_mesh
-
         extent = read_extent(base)
         mesh, cells, facets = read_mesh(base, gdim=2, comm=comm, rank=rank)
         return cls.from_mesh(base, mesh, cells, facets, extent, theta_min=theta_min)
@@ -408,18 +244,9 @@ class EbsdMicrostructure:
         return len(self.grain_ids)
 
     @property
-    def orientations(self):
-        """Planar lattice angles are unavailable for the measured cubic grains."""
-        return None
-
-    @property
     def tolerance(self):
         """Distance tolerance for comparing coordinates in diagnostics."""
         return 1e-9 * max(self.extent)
-
-    def locator(self, points):
-        """Report how to locate this network from tags."""
-        raise TypeError("EBSD network location requires facet_tags and gb_tag")
 
     @property
     def interior_mask(self):
@@ -507,57 +334,3 @@ class EbsdMicrostructure:
             f"  boundary length                 : {self.network_measure:.4g}",
         ]
         return "\n".join(lines)
-
-
-def write_network_png(base, mesh, micro, archive_path, unit=1e-6, unit_name="um"):
-    """Write ``<stem>-check-network.png`` with the boundaries FESTIM selects.
-
-    The background matches the mesh overlay. Retained interior boundaries are
-    coloured by disorientation, rejected boundaries are dashed white, and
-    specimen-surface edges are grey. Compare with ``<stem>-check-mesh.png`` to
-    inspect the disorientation filter and displacement from the source pixels.
-    """
-    if mesh.comm.size > 1:
-        return
-    import matplotlib.pyplot as plt
-    from matplotlib.collections import LineCollection
-
-    use_agg()
-    base = Path(base)
-    data = read_ebsd(archive_path)
-    cells, vox = data.labels, data.vox
-    fdim = mesh.topology.dim - 1
-    owned = np.arange(mesh.topology.index_map(fdim).size_local, dtype=np.int32)
-    owned = owned[micro.facet_edge[owned] > 0]
-    nodes = dolfinx.mesh.entities_to_geometry(mesh, fdim, owned, False)
-    segs = mesh.geometry.x[nodes][:, :, :2] / unit  # back to source units
-    e = micro.facet_edge[owned] - 1
-    surface = ~micro.interior_mask[e]
-    kept = micro.network_mask[e]
-    dropped = ~surface & ~kept
-
-    ny, nx = cells.shape
-    fig, ax = plt.subplots(figsize=(8, 8 * ny * vox[1] / (nx * vox[0])))
-    draw_raster(ax, cells, vox)
-    ax.add_collection(LineCollection(segs[surface], colors="0.6", lw=0.7))
-    ax.add_collection(
-        LineCollection(segs[dropped], colors="white", lw=1.3, linestyles="--")
-    )
-    net = LineCollection(segs[kept], cmap="inferno", lw=1.8)
-    net.set_array(micro.theta[e[kept]])
-    net.set_clim(micro.theta_min, 62.8)
-    ax.add_collection(net)
-    fig.colorbar(net, ax=ax, fraction=0.046).set_label("theta (deg)")
-    n_kept, n_int = int(micro.network_mask.sum()), int(micro.interior_mask.sum())
-    ax.set_title(
-        f"network used by FESTIM: {n_kept} of {n_int} boundaries above "
-        f"{micro.theta_min:g} deg\n(dashed white = dropped, grey = specimen surface)"
-    )
-    ax.set_xlabel(f"x ({unit_name})")
-    ax.set_ylabel(f"y ({unit_name})")
-    scale_bar_ax(ax, nx * vox[0], unit_name)
-    fig.tight_layout()
-    out = Path(f"{base}-check-network.png")
-    fig.savefig(out, dpi=150)
-    plt.close(fig)
-    print(f"  wrote {out}")

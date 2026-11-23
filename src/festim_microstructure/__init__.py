@@ -13,13 +13,13 @@ from . import (
     ebsd,
     exports,
     fem,
-    formats,
     materials,
-    meshing,
     microstructure,
+    msh4,
     plotting,
     voronoi,
 )
+from .ebsd import EbsdMicrostructure, EbsdOptions, UpxoMeshOptions, run_ebsd_pipeline
 from .fem import (
     Grain,
     GrainBoundaryNetwork,
@@ -30,8 +30,6 @@ from .fem import (
     grain_surfaces,
 )
 from .materials import crystal_diffusivity_field
-from .meshing.ebsd import EbsdMicrostructure, EbsdOptions, run_ebsd_pipeline
-from .meshing.upxo import UpxoMeshOptions
 from .microstructure import (
     BoundaryTopology,
     MeshedMicrostructure,
@@ -65,13 +63,12 @@ __all__ = [
     "ebsd",
     "exports",
     "fem",
-    "formats",
     "grain_boundary_network",
     "grain_subdomains",
     "grain_surfaces",
     "materials",
-    "meshing",
     "microstructure",
+    "msh4",
     "plotting",
     "run_ebsd_pipeline",
     "voronoi",

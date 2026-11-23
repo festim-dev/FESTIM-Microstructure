@@ -88,7 +88,13 @@ def _layered_polycrystal(dim):
     grain_ids = np.array([2, 7, 11], dtype=np.int32)
     values = grain_ids[np.searchsorted([1 / 3, 2 / 3], heights)]
     tags = dolfinx.mesh.meshtags(mesh, dim, cells, values)
-    return fm.TaggedPolycrystal(mesh, tags)
+    return fm.TaggedPolycrystal(
+        mesh,
+        tags,
+        network_locator=lambda x: (
+            np.isclose(x[dim - 1], 1 / 3) | np.isclose(x[dim - 1], 2 / 3)
+        ),
+    )
 
 
 @pytest.mark.fenics

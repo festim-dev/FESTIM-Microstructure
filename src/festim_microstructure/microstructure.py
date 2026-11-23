@@ -27,8 +27,10 @@ import numpy as np
 
 __all__ = [
     "BoundaryTopology",
+    "GeometricBoundaryLocator",
     "MeshedMicrostructure",
     "Microstructure",
+    "PlanarLatticeOrientations",
     "TaggedPolycrystal",
 ]
 
@@ -49,10 +51,8 @@ class MeshedMicrostructure(Microstructure, Protocol):
     ``facet_tags``/``gb_tag`` may be ``None``: a builder that cannot tag the
     grain-boundary facets leaves them unset and
     :func:`~festim_microstructure.fem.subdomains.grain_boundary_network`
-    locates the network geometrically through :meth:`locator` instead. The
-    attributes must still *exist*, so that consumers can test them rather than
-    reach for ``getattr(micro, "facet_tags", None)`` and silently take the
-    wrong branch when the name is simply misspelled.
+    locates the network through :class:`GeometricBoundaryLocator` in that case.
+    The tag attributes are required in both cases.
     """
 
     #: ``dolfinx.mesh.Mesh`` covering the whole cell.
@@ -65,11 +65,6 @@ class MeshedMicrostructure(Microstructure, Protocol):
     @property
     def gb_tag(self) -> Any:
         """Facet-tag values marking the grain boundaries, or ``None`` for a locator."""
-        ...
-
-    @property
-    def orientations(self) -> np.ndarray | None:
-        """Planar angles in radians, indexed by ``grain_id - 1`` if available."""
         ...
 
     @property
@@ -87,8 +82,24 @@ class MeshedMicrostructure(Microstructure, Protocol):
         """Distance below which a point counts as lying on the network."""
         ...
 
-    def locator(self, points: np.ndarray) -> np.ndarray:
-        """``(3, n)`` points in, boolean "is on the network" out."""
+
+@runtime_checkable
+class PlanarLatticeOrientations(Protocol):
+    """Optional planar lattice orientations for anisotropic diffusivity."""
+
+    @property
+    def orientations(self) -> np.ndarray | None:
+        """Planar angles in radians, indexed by ``grain_id - 1`` if available."""
+        ...
+
+
+@runtime_checkable
+class GeometricBoundaryLocator(Protocol):
+    """Optional geometric location of the grain-boundary network."""
+
+    @property
+    def locator(self) -> Callable[[np.ndarray], np.ndarray] | None:
+        """A predicate mapping ``(3, n)`` points to a Boolean mask."""
         ...
 
 
@@ -175,15 +186,10 @@ class TaggedPolycrystal:
         """Number of tagged grains in the mesh."""
         return len(self.grain_ids)
 
-    def locator(self, points: np.ndarray) -> np.ndarray:
-        """Classify points using the configured geometric network locator."""
-        if self.network_locator is None:
-            raise TypeError(
-                f"{type(self).__name__} {self.name!r} was built without a "
-                "network_locator, so the network can only come from facet tags. "
-                "Pass facet_tags and gb_tag, or a network_locator."
-            )
-        return self.network_locator(points)
+    @property
+    def locator(self) -> Callable[[np.ndarray], np.ndarray] | None:
+        """The configured geometric network locator."""
+        return self.network_locator
 
     def report(self) -> str:
         """Summarize the grain count and network location method."""

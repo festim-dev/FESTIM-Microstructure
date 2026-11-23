@@ -175,24 +175,23 @@ FESTIM-Microstructure/
 │   ├── microstructure.py       # microstructure protocols, TaggedPolycrystal
 │   ├── materials.py            # lattice tensor field, short-circuit estimates
 │   ├── plotting.py             # raster colours, Matplotlib defaults, scale bars
-│   ├── formats/                # file I/O
-│   │   ├── ctf.py
-│   │   ├── ebsd.py             # native grain/pixel arrays and masks
-│   │   ├── msh4.py             # tagged Gmsh mesh readers
-│   │   └── provenance.py
-│   ├── ebsd/                   # UPXO/DefDAP measured grain import
+│   ├── msh4.py                  # generic tagged Gmsh mesh readers
+│   ├── ebsd/                    # CTF import, UPXO meshing, and EBSD topology
+│   │   ├── options.py
+│   │   ├── pipeline.py
+│   │   ├── topology.py
 │   │   ├── orientation.py
-│   │   ├── settings.py
-│   │   ├── convert.py
-│   │   └── diagnostics.py
-│   ├── voronoi/                # generated 2D/3D tessellations and Gmsh meshes
-│   │   ├── geometry.py         # dimension-dispatched tessellation geometry
+│   │   ├── ctf.py
+│   │   ├── archive.py
+│   │   ├── provenance.py
+│   │   ├── grains.py
+│   │   ├── upxo.py
+│   │   ├── import_checks.py
+│   │   └── mesh_checks.py
+│   ├── voronoi/                 # generated 2D/3D tessellations and Gmsh meshes
+│   │   ├── geometry.py
 │   │   ├── gmsh_builder.py
 │   │   └── polycrystal.py
-│   ├── meshing/                # EBSD meshing and topology
-│   │   ├── ebsd.py
-│   │   ├── upxo.py             # UPXO worker and export adapter
-│   │   └── diagnostics.py
 │   ├── fem/
 │   │   ├── _system.py          # common FESTIM transport declarations
 │   │   ├── solvers.py          # tune_direct_solver: the MUMPS workspace workaround

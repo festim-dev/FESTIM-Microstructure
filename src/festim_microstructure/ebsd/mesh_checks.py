@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from festim_microstructure.formats.ebsd import read_ebsd
-from festim_microstructure.formats.msh4 import read_msh4
+from festim_microstructure.msh4 import read_msh4
 from festim_microstructure.plotting import (
     draw_raster,
     scale_bar_ax,
     use_agg,
 )
+
+from .archive import read_ebsd
 
 __all__ = [
     "AreaChange",
@@ -401,3 +404,91 @@ def overlay(
     if log:
         log(f"  wrote {output}")
     return output
+
+
+UNIT_NAMES = {1e-9: "nm", 1e-6: "um", 1e-3: "mm", 1.0: "m"}
+
+
+def unit_name(unit):
+    """Display label for a metres-per-source-coordinate scale."""
+    return UNIT_NAMES.get(unit, "source units")
+
+
+def mesh_diagnostics(base, unit_name="um", check_images=True):
+    """Compare final SI mesh with imported labels, in source display units."""
+    base = Path(base)
+    archive, msh4 = f"{base}-ebsd.npz", f"{base}.msh4"
+    scale = json.loads(Path(f"{base}-metadata.json").read_text())["unit"]
+    if check_images:
+        overlay(
+            archive,
+            msh4,
+            output=f"{base}-check-mesh.png",
+            unit=unit_name,
+            mesh_unit=scale,
+        )
+    return measure(
+        archive,
+        msh4,
+        AreaReportOptions(
+            csv=f"{base}-areachange.csv",
+            png=f"{base}-check-area.png" if check_images else None,
+            unit=unit_name,
+            mesh_unit=scale,
+        ),
+    )
+
+
+def write_network_png(base, mesh, micro, archive_path, unit=1e-6, unit_name="um"):
+    """Write ``<stem>-check-network.png`` with the boundaries FESTIM selects.
+
+    The background matches the mesh overlay. Retained interior boundaries are
+    coloured by disorientation, rejected boundaries are dashed white, and
+    specimen-surface edges are grey. Compare with ``<stem>-check-mesh.png`` to
+    inspect the disorientation filter and displacement from the source pixels.
+    """
+    if mesh.comm.size > 1:
+        return
+    import dolfinx
+    import matplotlib.pyplot as plt
+    from matplotlib.collections import LineCollection
+
+    use_agg()
+    base = Path(base)
+    data = read_ebsd(archive_path)
+    cells, vox = data.labels, data.vox
+    fdim = mesh.topology.dim - 1
+    owned = np.arange(mesh.topology.index_map(fdim).size_local, dtype=np.int32)
+    owned = owned[micro.facet_edge[owned] > 0]
+    nodes = dolfinx.mesh.entities_to_geometry(mesh, fdim, owned, False)
+    segs = mesh.geometry.x[nodes][:, :, :2] / unit  # back to source units
+    e = micro.facet_edge[owned] - 1
+    surface = ~micro.interior_mask[e]
+    kept = micro.network_mask[e]
+    dropped = ~surface & ~kept
+
+    ny, nx = cells.shape
+    fig, ax = plt.subplots(figsize=(8, 8 * ny * vox[1] / (nx * vox[0])))
+    draw_raster(ax, cells, vox)
+    ax.add_collection(LineCollection(segs[surface], colors="0.6", lw=0.7))
+    ax.add_collection(
+        LineCollection(segs[dropped], colors="white", lw=1.3, linestyles="--")
+    )
+    net = LineCollection(segs[kept], cmap="inferno", lw=1.8)
+    net.set_array(micro.theta[e[kept]])
+    net.set_clim(micro.theta_min, 62.8)
+    ax.add_collection(net)
+    fig.colorbar(net, ax=ax, fraction=0.046).set_label("theta (deg)")
+    n_kept, n_int = int(micro.network_mask.sum()), int(micro.interior_mask.sum())
+    ax.set_title(
+        f"network used by FESTIM: {n_kept} of {n_int} boundaries above "
+        f"{micro.theta_min:g} deg\n(dashed white = dropped, grey = specimen surface)"
+    )
+    ax.set_xlabel(f"x ({unit_name})")
+    ax.set_ylabel(f"y ({unit_name})")
+    scale_bar_ax(ax, nx * vox[0], unit_name)
+    fig.tight_layout()
+    out = Path(f"{base}-check-network.png")
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"  wrote {out}")

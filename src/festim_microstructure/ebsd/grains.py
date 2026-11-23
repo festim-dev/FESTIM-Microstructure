@@ -10,7 +10,9 @@ from pathlib import Path
 
 import numpy as np
 
-from festim_microstructure.ebsd.diagnostics import (
+from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
+from festim_microstructure.ebsd.ctf import CtfMap
+from festim_microstructure.ebsd.import_checks import (
     QualityPanels,
     SegmentationError,
     format_report,
@@ -19,22 +21,21 @@ from festim_microstructure.ebsd.diagnostics import (
     write_orientation_png,
     write_quality_png,
 )
-from festim_microstructure.ebsd.diagnostics import write_png as write_segerr_png
+from festim_microstructure.ebsd.import_checks import write_png as write_segerr_png
+from festim_microstructure.ebsd.options import (
+    CUBIC_LAUE,
+    Settings,
+    settings_from_provenance,
+)
 from festim_microstructure.ebsd.orientation import (
     ROT_X_180,
     euler_bunge_to_quat,
     qconj,
     qmul,
 )
-from festim_microstructure.ebsd.settings import (
-    CUBIC_LAUE,
-    Settings,
-    settings_from_provenance,
-)
-from festim_microstructure.formats.ctf import CtfMap
-from festim_microstructure.formats.ebsd import EbsdData, read_ebsd, write_ebsd
-from festim_microstructure.formats.provenance import read_provenance, write_provenance
-from festim_microstructure.meshing.upxo import UPXO_REVISION, import_ebsd
+from festim_microstructure.ebsd.provenance import read_provenance, write_provenance
+
+from . import upxo
 
 __all__ = [
     "ConversionResult",
@@ -109,9 +110,21 @@ class CtfConversion:
     preparation; the original membership remains available in the archive.
     """
 
-    def __init__(self, settings, log=print):
+    def __init__(
+        self,
+        settings,
+        log=print,
+        *,
+        python=None,
+        timeout=upxo.DEFAULT_WORKER_TIMEOUT,
+        check_images=False,
+    ):
+        upxo._validate_timeout(timeout)
         self.settings = settings
         self.log = log or (lambda *args: None)
+        self.python = python
+        self.timeout = timeout
+        self.check_images = check_images
 
     def read(self):
         opt = self.settings
@@ -155,7 +168,15 @@ class CtfConversion:
 
     def import_grains(self):
         opt = self.settings
-        imported = import_ebsd(self.ctf, self.window, self.ok, opt, log=self.log)
+        imported = upxo.import_ebsd(
+            self.ctf,
+            self.window,
+            self.ok,
+            opt,
+            log=self.log,
+            python=self.python,
+            timeout=self.timeout,
+        )
         source = imported["source_labels"]
         labels = np.maximum(source, 0).astype(np.int32)
         if not np.any(labels):
@@ -178,7 +199,7 @@ class CtfConversion:
             grains = qmul(opt.euler_correction_quat, grains)
         # The CTF parser independently checks transcription/convention; it does
         # not supply the data used for grain detection or the grain means.
-        from festim_microstructure.ebsd.diagnostics import theta_field
+        from festim_microstructure.ebsd.import_checks import theta_field
 
         transcription = theta_field(self.qgrid, pixels)
         if np.max(transcription[self.ok]) > 1e-3:
@@ -259,8 +280,6 @@ class CtfConversion:
         return self
 
     def identity(self):
-        from festim_microstructure.meshing import upxo
-
         return json.loads(
             json.dumps(
                 dict(
@@ -268,19 +287,21 @@ class CtfConversion:
                     source_sha256=hashlib.sha256(
                         Path(self.settings.ctf).read_bytes()
                     ).hexdigest(),
-                    upxo_revision=UPXO_REVISION,
+                    upxo_revision=upxo.UPXO_REVISION,
                     worker_environment=upxo.probe_worker(
-                        self.settings.python, timeout=self.settings.timeout
+                        self.python, timeout=self.timeout
                     ),
                     code_sha256=hashlib.sha256(
-                        Path(__file__).read_bytes() + Path(upxo.__file__).read_bytes()
+                        Path(__file__).read_bytes()
+                        + Path(upxo.__file__).read_bytes()
+                        + Path(__file__).with_name("options.py").read_bytes()
                     ).hexdigest(),
                 )
             )
         )
 
     def diagnose(self):
-        if self.settings.diagnostics:
+        if self.check_images:
             stem = self.archive_path.with_suffix("")
             write_segerr_png(
                 f"{stem}-segerr.png",
@@ -361,7 +382,16 @@ class CtfConversion:
 
 
 def convert(
-    ctf_path=None, output=None, *, settings=None, log=print, force=True, **kwargs
+    ctf_path=None,
+    output=None,
+    *,
+    settings=None,
+    log=print,
+    force=True,
+    python=None,
+    timeout=upxo.DEFAULT_WORKER_TIMEOUT,
+    check_images=False,
+    **kwargs,
 ):
     """Import a CTF into a native archive through UPXO/DefDAP.
 
@@ -373,9 +403,13 @@ def convert(
         raise TypeError("pass either a Settings object or keyword arguments")
     if settings is None and ctf_path is None:
         raise TypeError("pass ctf_path or a Settings object")
-    return CtfConversion(settings or Settings(ctf=str(ctf_path), **kwargs), log).run(
-        output, force=force
-    )
+    return CtfConversion(
+        settings or Settings(ctf=str(ctf_path), **kwargs),
+        log,
+        python=python,
+        timeout=timeout,
+        check_images=check_images,
+    ).run(output, force=force)
 
 
 def measure_against_ctf(ctf_path, archive_path, options=None, log=print):
@@ -421,7 +455,7 @@ def measure_against_ctf(ctf_path, archive_path, options=None, log=print):
     if opt.png:
         write_segerr_png(opt.png, res, cells, unit=settings.unit, log=log)
     if opt.csv:
-        from festim_microstructure.ebsd.diagnostics import write_csv
+        from festim_microstructure.ebsd.import_checks import write_csv
 
         write_csv(opt.csv, res, log=log)
     return res

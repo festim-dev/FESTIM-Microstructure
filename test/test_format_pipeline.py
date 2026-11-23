@@ -5,13 +5,16 @@ import json
 import numpy as np
 import pytest
 
-from festim_microstructure.ebsd.convert import (
+from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
+from festim_microstructure.ebsd.grains import (
     CtfConversion,
     MeasureOptions,
     convert,
     measure_against_ctf,
 )
-from festim_microstructure.ebsd.diagnostics import verify_readback
+from festim_microstructure.ebsd.import_checks import verify_readback
+from festim_microstructure.ebsd.mesh_checks import area_change, overlay
+from festim_microstructure.ebsd.options import Settings, settings_from_provenance
 from festim_microstructure.ebsd.orientation import (
     ROT_X_180,
     cubic_disorientation_angle,
@@ -19,12 +22,9 @@ from festim_microstructure.ebsd.orientation import (
     qconj,
     qmul,
 )
-from festim_microstructure.ebsd.settings import Settings, settings_from_provenance
-from festim_microstructure.formats.ebsd import EbsdData, read_ebsd, write_ebsd
-from festim_microstructure.formats.msh4 import read_msh4
-from festim_microstructure.formats.provenance import read_provenance
-from festim_microstructure.meshing.diagnostics import area_change, overlay
-from festim_microstructure.meshing.upxo import resolve_python
+from festim_microstructure.ebsd.provenance import read_provenance
+from festim_microstructure.ebsd.upxo import resolve_python
+from festim_microstructure.msh4 import read_msh4
 
 
 @pytest.mark.skipif(

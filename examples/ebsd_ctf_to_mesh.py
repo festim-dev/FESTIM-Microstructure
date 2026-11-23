@@ -18,7 +18,6 @@ options = fm.EbsdOptions(
         max_mad=1.5,
         allow_error=True,
         crop=(0, 306, 0, 306),
-        diagnostics=True,
     ),
     mesh=fm.UpxoMeshOptions(smooth_lambda=0.5, smooth_mu=-0.53, smooth_iter=5),
     unit=1e-6,

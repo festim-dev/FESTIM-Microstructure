@@ -20,6 +20,8 @@ import dolfinx
 import festim as F
 import numpy as np
 
+from festim_microstructure.microstructure import GeometricBoundaryLocator
+
 __all__ = [
     "Grain",
     "GrainBoundaryNetwork",
@@ -336,11 +338,16 @@ def grain_boundary_network(
             drop_exterior=drop_exterior,
             diffusivity_by_entity=diffusivity_by_entity,
         )
+    locator = micro.locator if isinstance(micro, GeometricBoundaryLocator) else None
+    if not callable(locator):
+        raise TypeError(
+            "grain boundary location requires facet tags or a callable locator"
+        )
     return GrainBoundaryNetwork(
         id,
         material,
         dim,
-        locator=micro.locator,
+        locator=locator,
         drop_exterior=drop_exterior,
         diffusivity_by_entity=diffusivity_by_entity,
     )

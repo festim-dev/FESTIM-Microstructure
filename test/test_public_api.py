@@ -11,10 +11,9 @@ import festim_microstructure
 PACKAGES = [
     "festim_microstructure",
     "festim_microstructure.fem",
-    "festim_microstructure.meshing",
     "festim_microstructure.ebsd",
     "festim_microstructure.exports",
-    "festim_microstructure.formats",
+    "festim_microstructure.voronoi",
 ]
 
 SRC = pathlib.Path(festim_microstructure.__file__).parent
@@ -74,15 +73,35 @@ def test_fem_is_where_the_fenics_glue_lives():
     assert heavy == {"_system.py", "solvers.py", "subdomains.py"}
 
 
-def test_formats_do_not_depend_on_science_modules():
-    """File I/O must not import segmentation, meshing, or material fields."""
-    for path in (SRC / "formats").glob("*.py"):
+def test_ebsd_contains_one_set_of_source_modules():
+    """EBSD owns its readers, options, pipeline, topology, and checks."""
+    modules = {
+        path.stem for path in (SRC / "ebsd").glob("*.py") if path.stem != "__init__"
+    }
+    assert modules == {
+        "archive",
+        "ctf",
+        "grains",
+        "import_checks",
+        "mesh_checks",
+        "options",
+        "orientation",
+        "pipeline",
+        "provenance",
+        "topology",
+        "upxo",
+    }
+
+
+def test_ebsd_solver_imports_are_confined_to_mesh_integration():
+    """The worker and data preparation modules have no solver imports."""
+    solver = {"dolfinx", "festim", "ufl", "basix", "petsc4py", "mpi4py"}
+    allowed = {"topology", "pipeline", "mesh_checks"}
+    for path in (SRC / "ebsd").glob("*.py"):
+        if path.stem in allowed:
+            continue
         for node in ast.walk(ast.parse(path.read_text())):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                assert not node.module.startswith(
-                    (
-                        "festim_microstructure.ebsd",
-                        "festim_microstructure.meshing",
-                        "festim_microstructure.materials",
-                    )
-                ), path
+            if isinstance(node, ast.Import):
+                assert not {alias.name.split(".")[0] for alias in node.names} & solver
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                assert node.module.split(".")[0] not in solver

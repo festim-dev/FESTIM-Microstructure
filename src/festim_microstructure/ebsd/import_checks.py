@@ -8,14 +8,14 @@ from typing import Any
 
 import numpy as np
 
+from festim_microstructure.ebsd.archive import read_ebsd
+from festim_microstructure.ebsd.options import Settings
 from festim_microstructure.ebsd.orientation import (
     ROT_X_180,
     cubic_disorientation_angle,
     qconj,
     qmul,
 )
-from festim_microstructure.ebsd.settings import Settings
-from festim_microstructure.formats.ebsd import read_ebsd
 from festim_microstructure.plotting import (
     scale_bar_ax,
     use_agg,

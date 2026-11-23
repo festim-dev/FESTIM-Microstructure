@@ -18,6 +18,8 @@ from typing import cast
 import dolfinx
 import numpy as np
 
+from .microstructure import PlanarLatticeOrientations
+
 __all__ = [
     "beta_parameter",
     "crystal_diffusivity_field",
@@ -100,7 +102,11 @@ def fill_crystal_diffusivity_field(D, micro, D_bulk, crystal_anisotropy=1.0):
     V = D.function_space
     gdim = V.mesh.geometry.dim
     isotropic = crystal_anisotropy == 1.0
-    orientations = None if isotropic else micro.orientations
+    orientations = (
+        micro.orientations
+        if not isotropic and isinstance(micro, PlanarLatticeOrientations)
+        else None
+    )
     if not isotropic and orientations is None:
         raise ValueError("anisotropic lattice diffusivity requires planar orientations")
 
