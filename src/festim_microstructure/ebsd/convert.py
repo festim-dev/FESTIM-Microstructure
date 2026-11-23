@@ -29,6 +29,7 @@ from festim_microstructure.ebsd.orientation import (
 from festim_microstructure.ebsd.settings import (
     CUBIC_LAUE,
     Settings,
+    _crop_bounds,
     settings_from_provenance,
 )
 from festim_microstructure.formats.ctf import CtfMap
@@ -479,13 +480,7 @@ def build_grid(
 
 def crop_grid(qgrid, ok, spec, xstep, ystep):
     """Crop source coordinates before grain detection and rebase to zero."""
-    try:
-        x0, x1, y0, y1 = (float(v) for v in spec.split(","))
-    except ValueError:
-        raise ValueError(
-            f"crop={spec!r}: expected four comma-separated numbers, "
-            "xmin,xmax,ymin,ymax, in the same units as XStep"
-        )
+    x0, x1, y0, y1 = _crop_bounds(spec)
     ny, nx = ok.shape
     ix0, ix1 = max(round(x0 / xstep), 0), min(round(x1 / xstep), nx)
     iy0, iy1 = max(round(y0 / ystep), 0), min(round(y1 / ystep), ny)

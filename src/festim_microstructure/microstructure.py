@@ -7,12 +7,10 @@ called "a microstructure":
   which is what the subdomain factories in
   :mod:`~festim_microstructure.fem.subdomains`, the coefficient fields in
   :mod:`~festim_microstructure.materials` and the post-processing in
-  :mod:`~festim_microstructure.exports` read. Implemented by the Voronoi
-  builders, and by :class:`TaggedPolycrystal` for a mesh that came from
-  somewhere else.
-* :class:`BoundaryNetwork` -- a tessellation topology with a per-entity
-  disorientation and masks selecting the boundaries to keep. Implemented by the
-  EBSD reader.
+  :mod:`~festim_microstructure.exports` read. Implemented by the Voronoi and
+  EBSD mesh builders, and by :class:`TaggedPolycrystal` for other tagged meshes.
+* :class:`BoundaryTopology` -- a tessellation topology with a per-entity
+  disorientation and masks selecting the boundaries to keep. Implemented by EBSD.
 
 Both are declared as :pep:`544` protocols, so an implementation conforms by
 having the right attributes rather than by inheriting. They are
@@ -29,6 +27,7 @@ import numpy as np
 
 __all__ = [
     "BoundaryNetwork",
+    "BoundaryTopology",
     "MeshedMicrostructure",
     "Microstructure",
     "TaggedPolycrystal",
@@ -63,12 +62,16 @@ class MeshedMicrostructure(Microstructure, Protocol):
     cell_tags: Any
     #: ``MeshTags`` on the facets, or ``None`` when the network is geometric.
     facet_tags: Any
-    #: The facet-tag value, or values, marking the grain boundaries; ``None``
-    #: when the network is geometric. An EBSD mesh tags every boundary edge
-    #: separately, so its network is a sequence of ids.
-    gb_tag: Any
-    #: One orientation per grain, indexed by ``grain_id - 1`` (radians).
-    orientations: np.ndarray
+
+    @property
+    def gb_tag(self) -> Any:
+        """Facet-tag values marking the grain boundaries, or ``None`` for a locator."""
+        ...
+
+    @property
+    def orientations(self) -> np.ndarray | None:
+        """Planar angles in radians, indexed by ``grain_id - 1`` if available."""
+        ...
 
     @property
     def n_grains(self) -> int:
@@ -91,7 +94,7 @@ class MeshedMicrostructure(Microstructure, Protocol):
 
 
 @runtime_checkable
-class BoundaryNetwork(Microstructure, Protocol):
+class BoundaryTopology(Microstructure, Protocol):
     """A tessellation's grain-boundary topology, as the EBSD reader reports it.
 
     Entities are boundaries: faces in 3D, edges in 2D. Every array here is in
@@ -124,14 +127,16 @@ class BoundaryNetwork(Microstructure, Protocol):
         ...
 
 
+# Compatibility spelling for the topology protocol.
+BoundaryNetwork = BoundaryTopology
+
+
 @dataclass
 class TaggedPolycrystal:
     """A :class:`MeshedMicrostructure` made from a mesh and its tags.
 
-    The adapter for a mesh this package did not generate: an EBSD mesh
-    read with :func:`festim_microstructure.formats.msh4.read_mesh`, or one built
-    by hand. The Voronoi builders return microstructures of their own and do not
-    need it.
+    Use this adapter for externally generated or hand-built meshes that have
+    grain tags. The Voronoi and EBSD builders supply their own meshed objects.
 
     Only ``mesh`` and ``cell_tags`` are required. ``grain_ids`` defaults to the
     distinct cell-tag values across all ranks, and ``orientations`` to zero for

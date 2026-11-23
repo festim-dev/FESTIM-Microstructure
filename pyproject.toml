@@ -44,8 +44,8 @@ lint = ["ruff"]
 docs = ["sphinx", "sphinx-book-theme", "sphinx-design"]
 
 [project.urls]
-Homepage = "https://github.com/ee-nn/FESTIM-Microstructure"
-Issues = "https://github.com/ee-nn/FESTIM-Microstructure/issues"
+Homepage = "https://github.com/festim-dev/FESTIM-Microstructure"
+Issues = "https://github.com/festim-dev/FESTIM-Microstructure/issues"
 
 [project.scripts]
 fm-check = "festim_microstructure.check:main"

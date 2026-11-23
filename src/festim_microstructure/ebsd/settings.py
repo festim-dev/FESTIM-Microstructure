@@ -24,13 +24,28 @@ def settings_from_provenance(path):
 CUBIC_LAUE = (11,)
 
 
+def _crop_bounds(spec):
+    """Parse a crop in the source coordinate units."""
+    values = spec.split(",") if isinstance(spec, str) else spec
+    try:
+        x0, x1, y0, y1 = (float(v) for v in values)
+        if np.isfinite((x0, x1, y0, y1)).all():
+            return x0, x1, y0, y1
+    except (OverflowError, TypeError, ValueError):
+        pass
+    raise ValueError(
+        f"crop={spec!r}: expected four finite bounds (xmin, xmax, ymin, ymax) "
+        "in the same units as XStep"
+    )
+
+
 @dataclass
 class Settings:
     """Configuration for :func:`convert`, including saved provenance."""
 
     ctf: str
-    #: Crop the measured map before segmentation.
-    crop: str | None = None
+    #: Crop before segmentation with (xmin, xmax, ymin, ymax) in source units.
+    crop: str | tuple[float, float, float, float] | None = None
     phase: int = 1  #: phase to keep
     threshold: float = 10.0  #: grain boundary misorientation, degrees
     max_mad: float = 1.0  #: MAD cutoff
@@ -52,6 +67,12 @@ class Settings:
     timeout: float = 600.0
 
     def __post_init__(self):
+        if self.crop is not None and self.crop != "":
+            # Keep the version-1 spelling for provenance and cache keys.
+            bounds = _crop_bounds(self.crop)
+            self.crop = ",".join(
+                str(bound or 0.0).removesuffix(".0") for bound in bounds
+            )
         if not isinstance(self.phase, int) or self.phase < 1:
             raise ValueError("phase must be a positive integer")
         if not isinstance(self.min_pixels, int) or self.min_pixels < 1:

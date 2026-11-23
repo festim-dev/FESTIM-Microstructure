@@ -1,5 +1,8 @@
 # UPXO 2D EBSD meshing evaluation
 
+See the [EBSD workflow guide](ebsd_workflow.md) for the user-facing pipeline,
+mesh options, and provenance.
+
 **Result: the 2D EBSD pathway uses pinned UPXO 1.3.1 with explicit pixel
 seeds and FESTIM’s export adapter. Exact polygons pass all eight fixtures;
 gentle Taubin passes the real crop and six synthetic fixtures. Serial

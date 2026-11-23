@@ -41,10 +41,19 @@ def test_submodules_resolve_as_attributes_of_the_package():
 
     assert fm.voronoi.VoronoiMicrostructure is fm.VoronoiMicrostructure
     assert fm.microstructure.MeshedMicrostructure is fm.MeshedMicrostructure
+    assert (
+        fm.BoundaryTopology is fm.BoundaryNetwork is fm.microstructure.BoundaryNetwork
+    )
     assert fm.Grain is fm.fem.Grain is fm.fem.subdomains.Grain
+    assert fm.GrainBoundarySystem is fm.fem.GrainBoundarySystem
+    assert fm.grain_subdomains is fm.fem.subdomains.grain_subdomains
+    assert fm.grain_boundary_network is fm.fem.subdomains.grain_boundary_network
+    assert fm.grain_surfaces is fm.fem.subdomains.grain_surfaces
+    assert fm.crystal_diffusivity_field is fm.materials.crystal_diffusivity_field
     assert fm.EbsdMicrostructure is fm.meshing.ebsd.EbsdMicrostructure
     assert fm.ebsd.CtfConversion is fm.ebsd.convert.CtfConversion
     assert fm.UpxoMeshOptions is fm.meshing.UpxoMeshOptions
+    assert fm.run_ebsd_pipeline is fm.meshing.ebsd.run_ebsd_pipeline
 
 
 def _module_level_imports(path):
@@ -83,7 +92,7 @@ def test_fem_is_where_the_fenics_glue_lives():
         for p in fem.glob("*.py")
         if _module_level_imports(p) & {"dolfinx", "festim", "petsc4py"}
     }
-    assert heavy == {"solvers.py", "subdomains.py"}
+    assert heavy == {"_system.py", "solvers.py", "subdomains.py"}
 
 
 def test_formats_do_not_depend_on_science_modules():

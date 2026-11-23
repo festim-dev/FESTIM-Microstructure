@@ -80,8 +80,8 @@ def interface_resistance_ratio(k, grain_size, D_bulk):
 def crystal_diffusivity_field(micro, D_bulk, crystal_anisotropy=1.0):
     """Create a parent-mesh DG0 tensor field with one lattice tensor per grain.
 
-    ``micro`` is a :class:`~festim_microstructure.microstructure.MeshedMicrostructure`;
-    its ``orientations`` set each grain's tensor through :func:`crystal_tensor`.
+    ``micro`` supplies planar ``orientations`` in radians when
+    ``crystal_anisotropy`` differs from one. Isotropic fields use ``D_bulk * I``.
     Returns the field and the grain-id-to-tensor mapping. Hand the field to
     every grain through ``festim.Material(D=field)``.
     """
@@ -99,16 +99,20 @@ def fill_crystal_diffusivity_field(D, micro, D_bulk, crystal_anisotropy=1.0):
     it, so the compiled forms are reused."""
     V = D.function_space
     gdim = V.mesh.geometry.dim
+    isotropic = crystal_anisotropy == 1.0
+    orientations = None if isotropic else micro.orientations
+    if not isotropic and orientations is None:
+        raise ValueError("anisotropic lattice diffusivity requires planar orientations")
+
+    isotropic_tensor = np.eye(gdim) * D_bulk
     tensors = {}
     n = gdim * gdim
     for grain_id in micro.grain_ids:
-        tensor = crystal_tensor(
-            D_bulk, micro.orientations[grain_id - 1], crystal_anisotropy
-        )
-        if gdim == 3:
-            full = np.eye(3) * D_bulk
-            full[:2, :2] = tensor
-            tensor = full
+        tensor = isotropic_tensor.copy()
+        if orientations is not None:
+            tensor[:2, :2] = crystal_tensor(
+                D_bulk, orientations[grain_id - 1], crystal_anisotropy
+            )
         tensors[grain_id] = tensor
         cells = micro.cell_tags.find(grain_id)
         dofs = V.dofmap.list[cells].reshape(-1)

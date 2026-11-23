@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from mpi4py import MPI
 
@@ -29,6 +30,7 @@ from festim_microstructure.meshing.diagnostics import (
     overlay,
 )
 from festim_microstructure.meshing.upxo import UpxoMeshOptions, mesh_ebsd
+from festim_microstructure.microstructure import _global_tag_values
 from festim_microstructure.plotting import draw_raster, scale_bar_ax, use_agg
 
 __all__ = [
@@ -55,7 +57,7 @@ def unit_name(unit):
 class EbsdOptions:
     """Full CTF → UPXO/DefDAP grains → UPXO mesh → FESTIM checks."""
 
-    ctf: str
+    ctf: str | Path | None = None
     unit: float = 1e-6
     theta_min: float = 10.0
     import_settings: Settings | None = None
@@ -64,6 +66,10 @@ class EbsdOptions:
     check_images: bool = True
 
     def __post_init__(self):
+        if self.ctf is None:
+            if self.import_settings is None:
+                raise TypeError("pass ctf or import_settings with a CTF source")
+            self.ctf = self.import_settings.ctf
         if self.mesh is None:
             self.mesh = UpxoMeshOptions()
         if self.import_settings is None:
@@ -131,14 +137,9 @@ def run_ebsd_pipeline(options, workdir: str | Path = "results", force=True):
     base, failure = comm.bcast((base, failure), root=0)
     if failure is not None:
         raise failure
-    from festim_microstructure.formats.msh4 import read_mesh
-
-    mesh, cells, facets = read_mesh(base, gdim=2)
-    micro = EbsdMicrostructure.from_mesh(
-        base, mesh, cells, facets, read_extent(base), theta_min=options.theta_min
-    )
+    micro = EbsdMicrostructure.load(base, theta_min=options.theta_min, comm=comm)
     micro.check_orientations()
-    if mesh.comm.rank == 0:
+    if micro.mesh.comm.rank == 0:
         report = dict(
             n_grains=micro.n_grains,
             n_edges=len(micro.edges),
@@ -147,12 +148,17 @@ def run_ebsd_pipeline(options, workdir: str | Path = "results", force=True):
             triple_junctions=micro.triple_junctions,
             theta_min=options.theta_min,
             orientation_source=f"{base.name}-ebsd.npz",
-            extent_m=list(read_extent(base)),
+            extent_m=list(micro.extent),
         )
         Path(f"{base}-festim.json").write_text(json.dumps(report, indent=2) + "\n")
     if options.check_images:
         write_network_png(
-            base, mesh, micro, f"{base}-ebsd.npz", options.unit, unit_name(options.unit)
+            base,
+            micro.mesh,
+            micro,
+            f"{base}-ebsd.npz",
+            options.unit,
+            unit_name(options.unit),
         )
     return base
 
@@ -272,13 +278,13 @@ def _edge_extents(comm, mesh, facet_edge, fdim, fmap, n_edge):
     )
 
 
-def _edge_orientations(base, n_grain, pair, interior_mask):
+def _edge_orientations(base, max_grain_id, pair, interior_mask):
     """Native grain quaternions and boundary disorientations for this mesh."""
     data = read_ebsd(f"{base}-ebsd.npz")
-    if data.ncells != n_grain:
+    if data.ncells != max_grain_id:
         raise RuntimeError(
             f"native EBSD archive has {data.ncells} grains "
-            f"but mesh grain tags reach {n_grain}"
+            f"but mesh grain tags reach {max_grain_id}"
         )
     q = data.grain_quats
     theta = np.zeros(len(pair))
@@ -315,22 +321,40 @@ class EbsdMicrostructure:
     Facet tags identify boundaries and cell tags retain grain IDs. Grain
     orientations are the native archive's unit quaternions in Bunge convention.
     Junction counts are exact in serial and lower bounds in parallel.
-    Implements :class:`~festim_microstructure.microstructure.BoundaryNetwork`.
-
-    Build it with :meth:`from_mesh`; the constructor only stores the arrays that
-    reconstruction produced, so the class can be built in a test without a mesh,
-    a communicator or an orientation file.
+    Implements :class:`~festim_microstructure.microstructure.BoundaryTopology`.
+    Use :meth:`load` or :meth:`from_mesh` to retain the mesh and its tags for
+    FESTIM. The constructor also accepts arrays alone for topology analysis.
     """
 
     base: Path
     extent: tuple
     n_grains: int
-    grain_quats: np.ndarray  #: (n_grains, 4), indexed by grain ID - 1
+    grain_quats: np.ndarray  #: Unit quaternions indexed by grain ID - 1
     facet_edge: np.ndarray  #: edge id per local facet, 0 off the network
     edges: BoundaryEdges
     triple_junctions: int
     surface_edges: int
     theta_min: float = 10.0
+
+    # from_mesh adds these attributes to a topology instance.
+    if TYPE_CHECKING:
+        mesh: dolfinx.mesh.Mesh
+        cell_tags: dolfinx.mesh.MeshTags
+        facet_tags: dolfinx.mesh.MeshTags
+        grain_ids: np.ndarray
+
+    @classmethod
+    def load(cls, base, *, theta_min=10.0, comm=None, rank=0):
+        """Load the SI mesh, extent and orientation sidecars at the path stem.
+
+        When using a communicator, call this on all of its ranks. ``rank`` is
+        the rank that reads the Gmsh file, as in ``formats.msh4.read_mesh``.
+        """
+        from festim_microstructure.formats.msh4 import read_mesh
+
+        extent = read_extent(base)
+        mesh, cells, facets = read_mesh(base, gdim=2, comm=comm, rank=rank)
+        return cls.from_mesh(base, mesh, cells, facets, extent, theta_min=theta_min)
 
     @classmethod
     def from_mesh(
@@ -359,20 +383,21 @@ class EbsdMicrostructure:
         cell_grain = np.zeros(cmap.size_local + cmap.num_ghosts, dtype=np.int32)
         cell_grain[cell_tags.indices] = cell_tags.values
         n_edge = comm.allreduce(int(facet_edge.max(initial=0)), op=MPI.MAX)
-        n_grain = comm.allreduce(int(cell_grain.max(initial=0)), op=MPI.MAX)
-        if n_edge == 0 or n_grain == 0:
+        grain_ids = _global_tag_values(mesh, cell_tags)
+        max_grain_id = int(grain_ids.max(initial=0))
+        if n_edge == 0 or max_grain_id == 0:
             raise RuntimeError("the mesh carries no boundary or grain tags")
 
         pair, interior_mask = _edge_grain_pairs(
             comm, facet_edge, cell_grain, f2c, n_edge
         )
         length, ymin, ymax = _edge_extents(comm, mesh, facet_edge, fdim, fmap, n_edge)
-        grain_quats, theta = _edge_orientations(base, n_grain, pair, interior_mask)
+        grain_quats, theta = _edge_orientations(base, max_grain_id, pair, interior_mask)
 
-        return cls(
+        micro = cls(
             base=Path(base),
             extent=extent,
-            n_grains=n_grain,
+            n_grains=len(grain_ids),
             grain_quats=grain_quats,
             facet_edge=facet_edge,
             edges=BoundaryEdges(
@@ -389,6 +414,25 @@ class EbsdMicrostructure:
             surface_edges=int((~interior_mask).sum()),
             theta_min=theta_min,
         )
+        micro.mesh = mesh
+        micro.cell_tags = cell_tags
+        micro.facet_tags = facet_tags
+        micro.grain_ids = grain_ids
+        return micro
+
+    @property
+    def orientations(self):
+        """Planar lattice angles are unavailable for the measured cubic grains."""
+        return None
+
+    @property
+    def tolerance(self):
+        """Distance tolerance for comparing coordinates in diagnostics."""
+        return 1e-9 * max(self.extent)
+
+    def locator(self, points):
+        """Report how to locate this network from tags."""
+        raise TypeError("EBSD network location requires facet_tags and gb_tag")
 
     @property
     def interior_mask(self):
@@ -408,6 +452,7 @@ class EbsdMicrostructure:
     #: Dimension-specific spellings, kept so existing callers keep working.
     network_edge_ids = network_ids
     network_entity_ids = network_ids
+    gb_tag = network_ids
 
     @property
     def theta(self):
@@ -441,8 +486,11 @@ class EbsdMicrostructure:
         """
         theta = self.theta[self.interior_mask]
         q = np.asarray(self.grain_quats)
+        n_orientations = (
+            self.grain_ids[-1] if hasattr(self, "grain_ids") else self.n_grains
+        )
         if (
-            q.shape != (self.n_grains, 4)
+            q.shape != (n_orientations, 4)
             or not np.isfinite(q).all()
             or not np.allclose(np.linalg.norm(q, axis=1), 1.0)
             or not np.isfinite(theta).all()

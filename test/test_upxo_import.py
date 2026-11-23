@@ -58,7 +58,7 @@ def test_crop_applies_before_minimum_grain_size(tmp_path, ctf_writer):
     full = convert(ctf, tmp_path / "full.npz", min_pixels=5, log=None)
     assert full.ncells == 1
     with pytest.raises(RuntimeError, match="no grains survived"):
-        convert(ctf, tmp_path / "crop.npz", min_pixels=5, crop="0,2,0,2", log=None)
+        convert(ctf, tmp_path / "crop.npz", min_pixels=5, crop=(0, 2, 0, 2), log=None)
     assert not (tmp_path / "crop.npz").exists()
 
 
