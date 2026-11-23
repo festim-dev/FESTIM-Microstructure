@@ -48,9 +48,11 @@ to correct the 0.93.6 averaging cancellation bug: UPXO's newer
 remain excluded from grain means. `EbsdMicrostructure.from_mesh()` now creates
 vertex-to-cell connectivity itself; callers need no extra topology setup.
 
-For `fill=False`, the supported void-preserving route is
-`UpxoMeshOptions(smoothing="none")`. Gentle Taubin moves the interior-void
-boundary and appropriately fails coverage validation. The checks are unchanged.
+For `fill=False`, `UpxoMeshOptions(smoothing="none")` keeps the exact mask.
+The regular Taubin path can move the mask boundary and fail coverage
+validation. Use `UpxoMeshOptions(smoothing="taubin", pin_mask_boundaries=True)`
+to smooth the interfaces between indexed grains while holding the perimeter
+and any unindexed regions fixed. The same geometry and mesh checks apply.
 Optional `thin_grain_px=1.5` enables thin-grain protection; the default is 0.
 The adapter explicitly passes `close_staircase=False` to prevent the protection
 option from triggering label-changing preprocessing.

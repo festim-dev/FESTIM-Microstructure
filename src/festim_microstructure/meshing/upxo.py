@@ -16,7 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from itertools import pairwise
 from pathlib import Path
@@ -41,9 +41,10 @@ class UpxoMeshOptions:
     """UPXO mesh sizes and controlled smoothing, measured in pixel coordinates.
 
     ``smoothing='none'`` preserves the raster boundaries exactly. Taubin uses
-    explicit pixel seeds and disables grain merging and diagonal repairs.
-    ``thin_grain_px`` enables optional thin-grain protection without changing
-    pixel labels. For unfilled voids, use ``smoothing="none"``.
+    explicit pixel seeds by default, with grain merging and diagonal repairs
+    disabled. Enable ``pin_mask_boundaries`` to instead smooth exact raster
+    polygons with the perimeter and unindexed regions held fixed.
+    ``thin_grain_px`` enables thin-grain protection without changing pixel labels.
     Geometry that fails the preservation checks raises before publication.
     """
 
@@ -59,10 +60,13 @@ class UpxoMeshOptions:
     max_boundary_displacement: float = 1.0
     python: str | None = None
     timeout: float = 600.0
+    pin_mask_boundaries: bool = False
 
     def __post_init__(self):
         if self.smoothing not in ("none", "taubin"):
             raise ValueError("smoothing must be 'none' or 'taubin'")
+        if not isinstance(self.pin_mask_boundaries, bool):
+            raise ValueError("pin_mask_boundaries must be a bool")
         for name in ("smooth_iter", "n_threads"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int):
@@ -343,6 +347,43 @@ def raster_polygons(labels):
 
 def polygon_parts(geometry):
     return [geometry] if geometry.geom_type == "Polygon" else list(geometry.geoms)
+
+
+def _smooth_pinned_raster(reference, labels, options):
+    """Apply UPXO's Taubin passes to shared vertices, pinning exposed edges."""
+    from shapely import transform
+    from upxo.pxtal.geometrification import GrainManifold2D
+
+    adjacency = defaultdict(set)
+    edge_uses = Counter()
+    for geometry in reference.values():
+        for part in polygon_parts(geometry):
+            for ring in (part.exterior, *part.interiors):
+                for first, second in pairwise(ring.coords):
+                    adjacency[first].add(second)
+                    adjacency[second].add(first)
+                    edge_uses[tuple(sorted((first, second)))] += 1
+    fixed = {
+        vertex for edge, count in edge_uses.items() if count == 1 for vertex in edge
+    }
+    manifold = GrainManifold2D(labels)
+    manifold.cells = reference
+    fixed.update(manifold._collect_thin_grain_vertices(options.thin_grain_px))
+    coordinates = {vertex: vertex for vertex in adjacency}
+    for _ in range(options.smooth_iter):
+        for factor in (options.smooth_lambda, options.smooth_mu):
+            coordinates = manifold._laplacian_step(
+                factor, coords_map=coordinates, frozen=fixed, adj=adjacency
+            )
+
+    def move_vertices(vertices):
+        return np.asarray([coordinates[tuple(vertex)] for vertex in vertices]).reshape(
+            vertices.shape
+        )
+
+    return {
+        gid: transform(geometry, move_vertices) for gid, geometry in reference.items()
+    }
 
 
 def pixel_seeds(shape):
@@ -721,7 +762,10 @@ def _worker(request):
         _check_compatibility()
         reference = raster_polygons(labels)
         cells = reference
-        if options.smoothing == "taubin" and options.smooth_iter:
+        use_taubin = options.smoothing == "taubin" and options.smooth_iter > 0
+        if use_taubin and options.pin_mask_boundaries:
+            cells = _smooth_pinned_raster(reference, labels, options)
+        elif use_taubin:
             from upxo.pxtalops.gssmooth2d import smooth_gs_slice
 
             smooth = smooth_gs_slice(
@@ -766,6 +810,10 @@ def _worker(request):
             mesh_order=1,
             recombine_to_quads=False,
             n_threads=options.n_threads,
+            # Geometry is in unit pixels. UPXO's span-scaled default snapping
+            # moves one-pixel grains enough to violate mesh-area preservation
+            # on long rasters. Keep the matching grid fixed in pixel units.
+            snap_tol=1e-9,
         )
         report["mesh"] = mesh_metrics(mesher, cells)
         arcs, _ = boundary_arcs(
