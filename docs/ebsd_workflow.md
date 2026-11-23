@@ -8,10 +8,9 @@ results.
 
 ## Import settings
 
-Pass the CTF path to `EbsdOptions(ctf=...)` for default import settings or
-set it on `fm.ebsd.Settings` when supplying `import_settings`. The crop is
-`(xmin, xmax, ymin, ymax)` in the source coordinate units. Existing
-comma-separated crop strings are also accepted.
+Set the CTF path in `fm.ebsd.Settings` and pass those settings to
+`fm.EbsdOptions(import_settings=...)`. Supply the crop as a tuple
+`(xmin, xmax, ymin, ymax)` in the source coordinate units.
 
 Quality and phase filters and the crop apply before UPXO's `EBSDReader` detects
 grains. DefDAP supplies grain labels and cubic symmetry equivalents. The importer
@@ -70,9 +69,8 @@ tags starting at 1, and lengths and extents are in metres.
 
 ## Reuse and provenance
 
-Import provenance uses format version 1. Equivalent tuple and string crops
-produce the same saved crop and cache key. With `force=False`, unsupported
-provenance versions trigger a fresh import.
+Import provenance uses format version 2 and stores crop bounds as a JSON array.
+With `force=False`, unsupported provenance versions trigger a fresh import.
 
 For separate import/inspection, use
 `fm.ebsd.convert.convert(ctf, "grains.npz", ...)` and

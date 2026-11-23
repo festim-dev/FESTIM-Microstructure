@@ -25,8 +25,6 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "results" / Path(__file__).stem
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 LEFT, RIGHT = 1, 2  # grain tags either side of the boundary at x = 0
-NETWORK_ID = 1_000_000  # keeps the existing BP network field name
-
 
 def eval_on(fn, points):
     """Evaluate a fenics Function at a list of (x, y, 0) points."""
@@ -100,7 +98,6 @@ system = fm.GrainBoundarySystem(
     F.Material(D=D_lattice),
     F.Material(D_0=D_GB, E_D=0.0),
     width=delta,
-    network_id=NETWORK_ID,
 )
 # Large k approaches Fisher's local-equilibrium assumption.
 sources, flux_bcs = system.exchange(k_exchange)

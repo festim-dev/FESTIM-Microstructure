@@ -4,13 +4,11 @@ Conformance is decided on attribute names, so a stand-in object is enough,
 and the real classes are checked against the protocol without building a mesh.
 """
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 
 from festim_microstructure.microstructure import (
-    BoundaryNetwork,
+    BoundaryTopology,
     MeshedMicrostructure,
     Microstructure,
     TaggedPolycrystal,
@@ -97,40 +95,12 @@ def test_dimension_agnostic_voronoi_fields():
     assert {"facet_tags", "gb_tag"} <= fields
 
 
-def test_ebsd_class_declares_the_whole_boundary_network_contract():
+def test_ebsd_class_declares_the_boundary_topology_and_mesh_contracts():
     """EBSD boundary edges supply the topology and disorientation fields."""
     from festim_microstructure.meshing.ebsd import EbsdMicrostructure
 
-    assert missing_members(EbsdMicrostructure, BoundaryNetwork) == []
-    assert hasattr(EbsdMicrostructure, "network_entity_ids")
-    assert EbsdMicrostructure.network_length is EbsdMicrostructure.network_measure
-
-
-def test_ebsd_topology_can_still_be_constructed_without_a_mesh():
-    from festim_microstructure.meshing.ebsd import BoundaryEdges, EbsdMicrostructure
-
-    empty = np.empty(0, dtype=float)
-    edges = BoundaryEdges(
-        np.empty((0, 2), dtype=np.int32),
-        np.empty(0, dtype=bool),
-        empty,
-        empty,
-        empty,
-        empty,
-    )
-    micro = EbsdMicrostructure(
-        Path("map"),
-        (1.0, 1.0),
-        1,
-        np.array([[1.0, 0.0, 0.0, 0.0]]),
-        np.empty(0, dtype=np.int32),
-        edges,
-        0,
-        0,
-    )
-    assert isinstance(micro, BoundaryNetwork)
-    assert not isinstance(micro, MeshedMicrostructure)
-    assert micro.check_orientations() == 1
+    assert missing_members(EbsdMicrostructure, BoundaryTopology) == []
+    assert missing_members(EbsdMicrostructure, MeshedMicrostructure) == []
 
 
 def test_tagged_polycrystal_satisfies_the_meshed_contract():

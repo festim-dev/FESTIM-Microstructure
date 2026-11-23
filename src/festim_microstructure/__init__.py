@@ -33,7 +33,6 @@ from .materials import crystal_diffusivity_field
 from .meshing.ebsd import EbsdMicrostructure, EbsdOptions, run_ebsd_pipeline
 from .meshing.upxo import UpxoMeshOptions
 from .microstructure import (
-    BoundaryNetwork,
     BoundaryTopology,
     MeshedMicrostructure,
     Microstructure,
@@ -47,7 +46,6 @@ except ImportError:
     __version__ = "0+unknown"
 
 __all__ = [
-    "BoundaryNetwork",
     "BoundaryTopology",
     "EbsdMicrostructure",
     "EbsdOptions",

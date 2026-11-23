@@ -26,7 +26,6 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 
 __all__ = [
-    "BoundaryNetwork",
     "BoundaryTopology",
     "MeshedMicrostructure",
     "Microstructure",
@@ -125,10 +124,6 @@ class BoundaryTopology(Microstructure, Protocol):
     def network_measure(self) -> float:
         """Total size of the network: length in 2D, area in 3D."""
         ...
-
-
-# Compatibility spelling for the topology protocol.
-BoundaryNetwork = BoundaryTopology
 
 
 @dataclass

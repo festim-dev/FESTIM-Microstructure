@@ -149,7 +149,8 @@ def test_import_cache_regenerates_unsupported_provenance(
     output = tmp_path / "map.npz"
     first = convert(ctf, output, min_pixels=1, force=False, log=None)
     record = json.loads(first.provenance.read_text())
-    record["version"] = 2
+    current_version = record["version"]
+    record["version"] = current_version + 1
     first.provenance.write_text(json.dumps(record))
     run = upxo.subprocess.run
     imports = []
@@ -162,7 +163,7 @@ def test_import_cache_regenerates_unsupported_provenance(
     monkeypatch.setattr(upxo.subprocess, "run", tracked_run)
     rebuilt = convert(ctf, output, min_pixels=1, force=False, log=None)
     assert len(imports) == 1
-    assert json.loads(rebuilt.provenance.read_text())["version"] == 1
+    assert json.loads(rebuilt.provenance.read_text())["version"] == current_version
     np.testing.assert_array_equal(rebuilt.data.labels, first.data.labels)
 
 

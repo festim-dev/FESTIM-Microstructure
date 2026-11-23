@@ -25,8 +25,6 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 HERE = Path(__file__).resolve().parent
 
-NETWORK_ID = 1_000_000  # keeps the existing BP network field name
-
 # Simulation parameters
 base = HERE / "results" / "ebsd_ctf_to_mesh" / "poly"
 theta_min = 10.0
@@ -55,7 +53,6 @@ system = fm.GrainBoundarySystem(
     F.Material(D=D_lattice),
     None if theta_dependent_D else F.Material(D_0=D_GB, E_D=0.0),
     width=delta,
-    network_id=NETWORK_ID,
     diffusivity_by_entity=(
         np.where(micro.theta >= theta_c, D_GB, D_B) if theta_dependent_D else None
     ),

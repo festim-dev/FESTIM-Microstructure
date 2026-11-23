@@ -27,8 +27,6 @@ import festim_microstructure as fm
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "results" / Path(__file__).stem
 
-NETWORK_ID = 1_000_000  # keeps the existing BP network field name
-
 # The problem is unscaled (D ~ 1e-11 m2/s, cell area ~ 1e-11 m2), so the Newton
 # residual of a converged step is itself ~1e-12 and FESTIM's default atol stalls
 # silently; see docs/gb_homogenisation.md. Nondimensionalising is the better fix.
@@ -135,7 +133,6 @@ def cell_problem(micro, transport, bcs, settings=None):
         F.Material(D=D_lattice),
         F.Material(D_0=transport.D_gb, E_D=0.0),
         width=transport.delta,
-        network_id=NETWORK_ID,
     )
     sources, boundary_conditions = system.exchange(transport.k)
     subdomains = system.subdomains

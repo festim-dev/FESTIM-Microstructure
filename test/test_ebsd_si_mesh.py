@@ -7,20 +7,6 @@ import numpy as np
 import pytest
 
 
-def test_ebsd_options_accept_either_source_path(tmp_path):
-    import festim_microstructure as fm
-
-    ctf = tmp_path / "map.ctf"
-    assert fm.EbsdOptions(ctf).import_settings.ctf == str(ctf)
-    settings = fm.ebsd.Settings(ctf=str(ctf))
-    assert fm.EbsdOptions(import_settings=settings).ctf == str(ctf)
-    assert fm.EbsdOptions(ctf, import_settings=settings).import_settings is settings
-    with pytest.raises(ValueError, match="same source"):
-        fm.EbsdOptions(tmp_path / "other.ctf", import_settings=settings)
-    with pytest.raises(TypeError, match="pass ctf or import_settings"):
-        fm.EbsdOptions()
-
-
 @pytest.mark.fenics
 def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
     tmp_path, monkeypatch, ctf_writer
@@ -50,7 +36,7 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
     )
     base = fm.run_ebsd_pipeline(options, workdir=tmp_path, force=False)
     provenance = base.with_name(f"{base.name}-import-provenance.json")
-    assert settings_from_provenance(provenance).crop == "0,8,0,9"
+    assert settings_from_provenance(provenance).crop == (0, 8, 0, 9)
     mesh, cells, facets = read_mesh(base, gdim=2)
     np.testing.assert_allclose(mesh.geometry.x.max(axis=0), [8e-6, 9e-6, 0])
     np.testing.assert_array_equal(np.unique(cells.values), [1, 2])
@@ -148,7 +134,6 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
             return run(command, **kwargs)
 
         context.setattr(upxo.subprocess, "run", unexpected_worker)
-        options.import_settings.crop = "0, 8.0, 0, 9.0"
         assert fm.run_ebsd_pipeline(options, workdir=tmp_path, force=False) == base
     assert base.with_suffix(".msh4").read_bytes() == original
 

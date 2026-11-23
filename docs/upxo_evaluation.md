@@ -163,7 +163,7 @@ passed **27 tests**, with that same optional-dependency skip.
 ### Real measured map
 
 The input was `examples/data/D7 PBF SS316L.ctf`, using the existing example's
-crop `0,306,0,306`, `min_pixels=15`, `max_mad=1.5`, `allow_error=True`, and
+crop `(0, 306, 0, 306)`, `min_pixels=15`, `max_mad=1.5`, `allow_error=True`, and
 10-degree segmentation threshold. Filling rejected pixels remained enabled;
 no label topology repair was applied.
 

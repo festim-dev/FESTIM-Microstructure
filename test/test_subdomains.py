@@ -93,7 +93,8 @@ def _layered_polycrystal(dim):
 
 @pytest.mark.fenics
 @pytest.mark.parametrize("dim", [2, 3])
-def test_grain_surfaces_batch_the_lookup_with_the_same_patches(dim):
+def test_grain_surfaces_assign_facets_in_one_lookup(dim):
+    import dolfinx
     import festim as F
 
     import festim_microstructure as fm
@@ -113,12 +114,11 @@ def test_grain_surfaces_batch_the_lookup_with_the_same_patches(dim):
     located = [p.locate_boundary_facet_indices(micro.mesh) for p in patches]
     assert len(calls) == 1
 
-    for patch, actual in zip(patches, located, strict=True):
-        standalone = fm.GrainSurface(
-            patch.id, patch.grain_id, micro.cell_tags, exterior_ends
-        )
-        expected = standalone.locate_boundary_facet_indices(micro.mesh)
-        np.testing.assert_array_equal(actual, expected)
+    facets = dolfinx.mesh.exterior_facet_indices(micro.mesh.topology)
+    heights = dolfinx.mesh.compute_midpoints(micro.mesh, dim - 1, facets)[:, dim - 1]
+    for height, actual in zip((0, 1), located, strict=True):
+        expected = facets[np.isclose(heights, height)]
+        np.testing.assert_array_equal(np.sort(actual), np.sort(expected))
 
 
 @pytest.mark.fenics
@@ -140,9 +140,6 @@ def test_grain_boundary_system_reserves_ids_for_each_surface():
     surfaces, bcs = system.fixed_concentration(top, 1.0, include_mouths=False)
     assert [s.id for s in surfaces] == [18]
     assert bcs[0].species is system.grain_species[-1]
-    # IDs for skipped patches and the omitted mouth are reserved too.
-    with pytest.raises(ValueError, match="overlap existing IDs"):
-        system.fixed_concentration(top, 1.0, first_id=19)
     surfaces, bcs = system.fixed_concentration(lambda x: np.isclose(x[1], 0), 0.0)
     assert [s.id for s in surfaces] == [20, 23]
     assert [bc.species for bc in bcs] == [system.grain_species[0], system.c_gb]

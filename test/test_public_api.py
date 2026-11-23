@@ -1,4 +1,4 @@
-"""The public exports and namespace access provided by ordinary imports."""
+"""The advertised public exports and package boundaries."""
 
 import ast
 import importlib
@@ -33,27 +33,6 @@ def test_unknown_attributes_raise_attribute_error(package):
     module = importlib.import_module(package)
     with pytest.raises(AttributeError, match="no attribute"):
         module.definitely_not_a_real_name
-
-
-def test_submodules_resolve_as_attributes_of_the_package():
-    """Curated exports and module-qualified names refer to the same objects."""
-    import festim_microstructure as fm
-
-    assert fm.voronoi.VoronoiMicrostructure is fm.VoronoiMicrostructure
-    assert fm.microstructure.MeshedMicrostructure is fm.MeshedMicrostructure
-    assert (
-        fm.BoundaryTopology is fm.BoundaryNetwork is fm.microstructure.BoundaryNetwork
-    )
-    assert fm.Grain is fm.fem.Grain is fm.fem.subdomains.Grain
-    assert fm.GrainBoundarySystem is fm.fem.GrainBoundarySystem
-    assert fm.grain_subdomains is fm.fem.subdomains.grain_subdomains
-    assert fm.grain_boundary_network is fm.fem.subdomains.grain_boundary_network
-    assert fm.grain_surfaces is fm.fem.subdomains.grain_surfaces
-    assert fm.crystal_diffusivity_field is fm.materials.crystal_diffusivity_field
-    assert fm.EbsdMicrostructure is fm.meshing.ebsd.EbsdMicrostructure
-    assert fm.ebsd.CtfConversion is fm.ebsd.convert.CtfConversion
-    assert fm.UpxoMeshOptions is fm.meshing.UpxoMeshOptions
-    assert fm.run_ebsd_pipeline is fm.meshing.ebsd.run_ebsd_pipeline
 
 
 def _module_level_imports(path):

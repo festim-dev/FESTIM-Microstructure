@@ -29,7 +29,6 @@ from festim_microstructure.ebsd.orientation import (
 from festim_microstructure.ebsd.settings import (
     CUBIC_LAUE,
     Settings,
-    _crop_bounds,
     settings_from_provenance,
 )
 from festim_microstructure.formats.ctf import CtfMap
@@ -133,7 +132,7 @@ class CtfConversion:
             opt.euler_correction_quat,
         )
         self.window = (slice(0, self.ok.shape[0]), slice(0, self.ok.shape[1]))
-        if opt.crop:
+        if opt.crop is not None:
             self.qgrid, self.ok, self.window = crop_grid(
                 self.qgrid,
                 self.ok,
@@ -480,7 +479,7 @@ def build_grid(
 
 def crop_grid(qgrid, ok, spec, xstep, ystep):
     """Crop source coordinates before grain detection and rebase to zero."""
-    x0, x1, y0, y1 = _crop_bounds(spec)
+    x0, x1, y0, y1 = spec
     ny, nx = ok.shape
     ix0, ix1 = max(round(x0 / xstep), 0), min(round(x1 / xstep), nx)
     iy0, iy1 = max(round(y0 / ystep), 0), min(round(y1 / ystep), ny)

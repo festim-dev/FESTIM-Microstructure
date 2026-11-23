@@ -96,7 +96,7 @@ def prepare(output):
     ctf = ROOT / "examples/data/D7 PBF SS316L.ctf"
     options = Settings(
         ctf=str(ctf),
-        crop="0,306,0,306",
+        crop=(0, 306, 0, 306),
         min_pixels=15,
         max_mad=1.5,
         allow_error=True,

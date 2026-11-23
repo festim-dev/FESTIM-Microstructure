@@ -45,8 +45,6 @@ import festim_microstructure as fm
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "results" / Path(__file__).stem
 
-NETWORK_ID = 1_000_000  # keeps the existing BP network field name
-
 # Simulation parameters
 L = 1.0  # specimen size
 n_seeds = 36  # number of grains
@@ -127,7 +125,6 @@ def grain_network_problem(micro, D_gb):
         F.Material(D=D_lattice),
         F.Material(D_0=D_gb, E_D=0.0),
         width=delta,
-        network_id=NETWORK_ID,
     )
     sources, flux_bcs = system.exchange(k_exchange)
     surfaces, surface_bcs = system.fixed_concentration(

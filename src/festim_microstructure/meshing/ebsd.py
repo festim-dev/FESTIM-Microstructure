@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from mpi4py import MPI
 
@@ -57,27 +56,16 @@ def unit_name(unit):
 class EbsdOptions:
     """Full CTF → UPXO/DefDAP grains → UPXO mesh → FESTIM checks."""
 
-    ctf: str | Path | None = None
+    import_settings: Settings
     unit: float = 1e-6
     theta_min: float = 10.0
-    import_settings: Settings | None = None
     mesh: UpxoMeshOptions | None = None
     stem: str = "poly"
     check_images: bool = True
 
     def __post_init__(self):
-        if self.ctf is None:
-            if self.import_settings is None:
-                raise TypeError("pass ctf or import_settings with a CTF source")
-            self.ctf = self.import_settings.ctf
         if self.mesh is None:
             self.mesh = UpxoMeshOptions()
-        if self.import_settings is None:
-            self.import_settings = Settings(ctf=str(self.ctf))
-        if Path(self.import_settings.ctf).resolve() != Path(self.ctf).resolve():
-            raise ValueError(
-                "ctf and import_settings.ctf must refer to the same source"
-            )
         if not np.isfinite(self.unit) or self.unit <= 0:
             raise ValueError("unit must be finite and positive")
         if not np.isfinite(self.theta_min) or not 0 <= self.theta_min < 63:
@@ -322,26 +310,22 @@ class EbsdMicrostructure:
     orientations are the native archive's unit quaternions in Bunge convention.
     Junction counts are exact in serial and lower bounds in parallel.
     Implements :class:`~festim_microstructure.microstructure.BoundaryTopology`.
-    Use :meth:`load` or :meth:`from_mesh` to retain the mesh and its tags for
-    FESTIM. The constructor also accepts arrays alone for topology analysis.
+    Use :meth:`load` or :meth:`from_mesh` to reconstruct the boundary topology
+    and retain the mesh and its tags for FESTIM.
     """
 
     base: Path
     extent: tuple
-    n_grains: int
+    mesh: dolfinx.mesh.Mesh
+    cell_tags: dolfinx.mesh.MeshTags
+    facet_tags: dolfinx.mesh.MeshTags
+    grain_ids: np.ndarray
     grain_quats: np.ndarray  #: Unit quaternions indexed by grain ID - 1
     facet_edge: np.ndarray  #: edge id per local facet, 0 off the network
     edges: BoundaryEdges
     triple_junctions: int
     surface_edges: int
     theta_min: float = 10.0
-
-    # from_mesh adds these attributes to a topology instance.
-    if TYPE_CHECKING:
-        mesh: dolfinx.mesh.Mesh
-        cell_tags: dolfinx.mesh.MeshTags
-        facet_tags: dolfinx.mesh.MeshTags
-        grain_ids: np.ndarray
 
     @classmethod
     def load(cls, base, *, theta_min=10.0, comm=None, rank=0):
@@ -394,10 +378,13 @@ class EbsdMicrostructure:
         length, ymin, ymax = _edge_extents(comm, mesh, facet_edge, fdim, fmap, n_edge)
         grain_quats, theta = _edge_orientations(base, max_grain_id, pair, interior_mask)
 
-        micro = cls(
+        return cls(
             base=Path(base),
             extent=extent,
-            n_grains=len(grain_ids),
+            mesh=mesh,
+            cell_tags=cell_tags,
+            facet_tags=facet_tags,
+            grain_ids=grain_ids,
             grain_quats=grain_quats,
             facet_edge=facet_edge,
             edges=BoundaryEdges(
@@ -414,11 +401,11 @@ class EbsdMicrostructure:
             surface_edges=int((~interior_mask).sum()),
             theta_min=theta_min,
         )
-        micro.mesh = mesh
-        micro.cell_tags = cell_tags
-        micro.facet_tags = facet_tags
-        micro.grain_ids = grain_ids
-        return micro
+
+    @property
+    def n_grains(self):
+        """Number of tagged grains in the mesh."""
+        return len(self.grain_ids)
 
     @property
     def orientations(self):
@@ -449,10 +436,10 @@ class EbsdMicrostructure:
         """1-based ids of the edges in the network."""
         return _ids(self.network_mask)
 
-    #: Dimension-specific spellings, kept so existing callers keep working.
-    network_edge_ids = network_ids
-    network_entity_ids = network_ids
-    gb_tag = network_ids
+    @property
+    def gb_tag(self):
+        """Facet tag values for the selected grain-boundary network."""
+        return self.network_ids
 
     @property
     def theta(self):
@@ -463,9 +450,6 @@ class EbsdMicrostructure:
     def network_measure(self):
         """Total length of the boundaries in the network."""
         return float(self.edges.length[self.network_mask].sum())
-
-    #: The 2D spelling of :attr:`network_measure`.
-    network_length = network_measure
 
     def junction_only_below(self, y_top, tol=1e-12):
         """Deepest point reached by a boundary that touches the charged edge.
@@ -486,11 +470,8 @@ class EbsdMicrostructure:
         """
         theta = self.theta[self.interior_mask]
         q = np.asarray(self.grain_quats)
-        n_orientations = (
-            self.grain_ids[-1] if hasattr(self, "grain_ids") else self.n_grains
-        )
         if (
-            q.shape != (n_orientations, 4)
+            q.shape != (self.grain_ids[-1], 4)
             or not np.isfinite(q).all()
             or not np.allclose(np.linalg.norm(q, axis=1), 1.0)
             or not np.isfinite(theta).all()
