@@ -1,4 +1,4 @@
-"""Shared raster colours, Matplotlib defaults, and scale bars."""
+"""Raster colours, Matplotlib defaults, and scale bars for EBSD diagnostics."""
 
 from __future__ import annotations
 

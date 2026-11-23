@@ -168,13 +168,13 @@ def run(cp, axis, S_v, ratio, f_gb) -> dict[str, float | str]:
         cp.D_gb,
     )
     D_eff = q[axis] * B / (C_IN - C_OUT)
+    equilibration_length = np.sqrt(delta * cp.D_gb / (2 * k))
     return dict(
         f_gb=f_gb,
         delta_nm=delta * 1e9,
         S_v_per_nm=S_v * 1e-9,
         k_m_per_s=k,
-        equilibration_length_nm=fm.materials.equilibration_length(delta, cp.D_gb, k)
-        * 1e9,
+        equilibration_length_nm=equilibration_length * 1e9,
         n_grains=len(system.grains),
         ratio=ratio,
         D_m=D_m(T),

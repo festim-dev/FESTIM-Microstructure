@@ -207,16 +207,14 @@ def run_case(name, aspect, aspect_axis, prefix):
     print(f"  inventory with fast boundaries : {fast:.4e}")
     f_gb = delta * face_area / L**3
     print(f"  boundary volume fraction f     : {f_gb:.3e}")
-    print(
-        f"  Hart bound f D_gb + (1-f) D_b  : "
-        f"{fm.materials.hart_bound(f_gb, D_GB, D_B):.3e}"
-        f"  (vs D_b = {D_B:.3e})"
-    )
-    beta = fm.materials.beta_parameter(delta, D_GB, D_B, t_end)
+    # Parallel upper bound from Hart (1957), Acta Metall. 5, 597.
+    hart = f_gb * D_GB + (1 - f_gb) * D_B
+    print(f"  Hart bound f D_gb + (1-f) D_b  : {hart:.3e}  (vs D_b = {D_B:.3e})")
+    # Le Claire's type-B parameter.
+    beta = delta * (D_GB / D_B - 1) / (2 * np.sqrt(D_B * t_end))
     print(f"  type-B parameter beta          : {beta:.0f}  (needs beta >> 1)")
-    resistance = fm.materials.interface_resistance_ratio(
-        k_exchange, L * n_seeds ** (-1 / 3), D_B
-    )
+    grain_size = L * n_seeds ** (-1 / 3)
+    resistance = (2.0 / k_exchange) / (grain_size / D_B)
     print(
         f"  interface / lattice resistance : {resistance:.1e}  (Fisher is the 0 limit)"
     )

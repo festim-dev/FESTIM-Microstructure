@@ -16,10 +16,8 @@ from festim_microstructure.ebsd.orientation import (
     qconj,
     qmul,
 )
-from festim_microstructure.plotting import (
-    scale_bar_ax,
-    use_agg,
-)
+
+from .plotting import draw_raster, scale_bar_ax, use_agg
 
 __all__ = [
     "L2Stats",
@@ -356,8 +354,6 @@ def write_orientation_png(path, data, log=print, unit="um"):
     0 <= y <= x <= z, and color the [001], [101], [111] vertices red,
     green, blue. The same mapping draws the key and both orientation maps.
     """
-    from festim_microstructure.ebsd.orientation import qconj, qmul
-    from festim_microstructure.plotting import draw_raster
 
     def colors(q):
         direction = np.zeros_like(q)

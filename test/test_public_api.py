@@ -87,6 +87,7 @@ def test_ebsd_contains_one_set_of_source_modules():
         "options",
         "orientation",
         "pipeline",
+        "plotting",
         "provenance",
         "topology",
         "upxo",

@@ -183,8 +183,9 @@ slope, intercept = np.polyfit(depths**1.2, np.log(cbar), 1)
 residual = np.abs(np.log(cbar) - (slope * depths**1.2 + intercept)).max()
 recovered = 1.322 * np.sqrt(D_B / t_end) * (-slope) ** (-5.0 / 3.0)
 
-alpha = delta / (2 * np.sqrt(D_B * t_end))
-beta = fm.materials.beta_parameter(delta, D_GB, D_B, t_end)
+# Le Claire (1963), Br. J. Appl. Phys. 14, 351.
+alpha = delta / bulk_only
+beta = delta * (D_GB / D_B - 1) / bulk_only
 print(
     f"\nLe Claire analysis (valid for alpha << 1, beta >> 1: "
     f"alpha = {alpha:.3f}, beta = {beta:.0f})"

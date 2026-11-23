@@ -21,7 +21,7 @@ import festim_microstructure as fm
 | Microstructure generation | 2D and 3D Voronoi polycrystals via Gmsh |
 | EBSD import | Conversion of EBSD orientation maps into conforming grain meshes |
 | FESTIM declarations | Tagged grains, the codimension-one network, per-grain surface patches, lattice and boundary diffusivity fields, species, and exchange terms |
-| Post-processing | Grain-plus-network inventories and flux averages, homogenisation and short-circuit estimates, network topology checks |
+| Post-processing | Grain-plus-network inventories and flux averages, network topology checks |
 | Benchmarks | Diaz-Rodriguez baseline, dimensional and non-dimensionalised |
 
 The transport model itself is FESTIM's. Every grain is a
@@ -173,8 +173,7 @@ FESTIM-Microstructure/
 │   ├── __init__.py              # public API with ordinary imports
 │   ├── check.py                # fm-check environment diagnostic
 │   ├── microstructure.py       # microstructure protocols, TaggedPolycrystal
-│   ├── materials.py            # lattice tensor field, short-circuit estimates
-│   ├── plotting.py             # raster colours, Matplotlib defaults, scale bars
+│   ├── materials.py            # lattice diffusivity tensors and fields
 │   ├── msh4.py                  # generic tagged Gmsh mesh readers
 │   ├── ebsd/                    # CTF import, UPXO meshing, and EBSD topology
 │   │   ├── options.py
@@ -187,7 +186,8 @@ FESTIM-Microstructure/
 │   │   ├── grains.py
 │   │   ├── upxo.py
 │   │   ├── import_checks.py
-│   │   └── mesh_checks.py
+│   │   ├── mesh_checks.py
+│   │   └── plotting.py          # diagnostic raster colours and scale bars
 │   ├── voronoi/                 # generated 2D/3D tessellations and Gmsh meshes
 │   │   ├── geometry.py
 │   │   ├── gmsh_builder.py

@@ -108,11 +108,11 @@ deep = gb_y < depth
 c_deep = cgb.x.array[deep].max() if deep.any() else 0.0
 total = system.inventory()
 print(f"\n  inventory                      : {total:.4e}")
-beta = fm.materials.beta_parameter(delta, D_GB, D_B, t_end)
+# Le Claire's type-B parameter.
+beta = delta * (D_GB / D_B - 1) / (2 * np.sqrt(D_B * t_end))
 print(f"  type-B parameter beta          : {beta:.0f}  (needs beta >> 1)")
-resistance = fm.materials.interface_resistance_ratio(
-    k_exchange, np.sqrt(LX * LY / micro.n_grains), D_B
-)
+grain_size = np.sqrt(LX * LY / micro.n_grains)
+resistance = (2.0 / k_exchange) / (grain_size / D_B)
 print(f"  interface / lattice resistance : {resistance:.1e}  (Fisher is the 0 limit)")
 
 c_grain_deep = fm.exports.averages.lattice_mean_below(

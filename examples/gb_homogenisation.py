@@ -17,6 +17,7 @@ from mpi4py import MPI
 
 import dolfinx
 import festim as F
+import matplotlib as mpl
 import numpy as np
 from matplotlib.collections import LineCollection
 from matplotlib.colors import LinearSegmentedColormap
@@ -72,7 +73,7 @@ class Transport:
 
     def report(self, grain_size=None):
         """Summarize transport properties and optional interface resistance."""
-        length = fm.materials.equilibration_length(self.delta, self.D_gb, self.k)
+        length = np.sqrt(self.delta * self.D_gb / (2 * self.k))
         lines = [
             f"transport at T = {self.T:g} K",
             f"  D_bulk (orientation average)   : {self.D_bulk:.3e} m2/s",
@@ -84,9 +85,7 @@ class Transport:
             f"  equilibration length           : {1e9 * length:.3g} nm",
         ]
         if grain_size is not None:
-            ratio = fm.materials.interface_resistance_ratio(
-                self.k, grain_size, self.D_bulk
-            )
+            ratio = (2.0 / self.k) / (grain_size / self.D_bulk)
             lines.append(f"  interface / lattice resistance : {ratio:.3e}")
         return "\n".join(lines)
 
@@ -481,6 +480,7 @@ BLUES = LinearSegmentedColormap.from_list("blues", SEQUENTIAL)
 
 STYLE = {
     "figure.facecolor": SURFACE,
+    "figure.titlesize": 16,
     "axes.facecolor": SURFACE,
     "savefig.facecolor": SURFACE,
     "font.size": 9,
@@ -1036,9 +1036,9 @@ def validate(micro, transport, ident, path, n_steps=60, skip_transient=False):
 
 def render_figures(record, validation=None, field_case=None):
     """Render saved summaries and, optionally, fields captured during fitting."""
-    plt = fm.plotting.use_agg()
+    mpl.use("Agg")
     written = []
-    with plt.rc_context(STYLE):
+    with mpl.rc_context(STYLE):
         identifications = record["identifications"]
         if identifications:
             biggest = max(identifications, key=lambda i: i["size"])

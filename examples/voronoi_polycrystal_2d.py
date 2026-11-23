@@ -172,16 +172,14 @@ print(f"  inventory with D_gb = D_b      : {ref:.4e}")
 print(f"  enhancement                    : x {fast / ref:.1f}")
 f_gb = delta * ridge_length / L**2
 print(f"  boundary area fraction f       : {f_gb:.3e}")
-print(
-    f"  Hart bound f D_gb + (1-f) D_b  : "
-    f"{fm.materials.hart_bound(f_gb, D_GB, D_B):.3e}"
-    f"  (vs D_b = {D_B:.3e})"
-)
-beta = fm.materials.beta_parameter(delta, D_GB, D_B, t_end)
+# Parallel upper bound from Hart (1957), Acta Metall. 5, 597.
+hart = f_gb * D_GB + (1 - f_gb) * D_B
+print(f"  Hart bound f D_gb + (1-f) D_b  : {hart:.3e}  (vs D_b = {D_B:.3e})")
+# Le Claire's type-B parameter.
+beta = delta * (D_GB / D_B - 1) / (2 * np.sqrt(D_B * t_end))
 print(f"  type-B parameter beta          : {beta:.0f}  (needs beta >> 1)")
-resistance = fm.materials.interface_resistance_ratio(
-    k_exchange, L / np.sqrt(n_grains), D_B
-)
+grain_size = L / np.sqrt(n_grains)
+resistance = (2.0 / k_exchange) / (grain_size / D_B)
 print(f"  interface / lattice resistance : {resistance:.1e}  (Fisher is the 0 limit)")
 
 c_grain_deep = fm.exports.averages.lattice_mean_below(

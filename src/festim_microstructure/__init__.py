@@ -16,7 +16,6 @@ from . import (
     materials,
     microstructure,
     msh4,
-    plotting,
     voronoi,
 )
 from .ebsd import EbsdMicrostructure, EbsdOptions, UpxoMeshOptions, run_ebsd_pipeline
@@ -69,7 +68,6 @@ __all__ = [
     "materials",
     "microstructure",
     "msh4",
-    "plotting",
     "run_ebsd_pipeline",
     "voronoi",
 ]
