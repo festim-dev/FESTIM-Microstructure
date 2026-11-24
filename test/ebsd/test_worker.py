@@ -26,29 +26,25 @@ def test_legacy_interpreter_override_warns(monkeypatch):
         assert _worker.resolve_python() == _worker.sys.executable
 
 
-def test_invalid_explicit_interpreter_takes_precedence(monkeypatch):
-    monkeypatch.setenv("FM_EBSD_PYTHON", _worker.sys.executable)
-    assert _worker.resolve_python("/missing/worker/python", required=False) is None
-
-
-@pytest.mark.parametrize("active_environment", ["festim-microstructure", "solver"])
-def test_standard_environment_discovery(tmp_path, monkeypatch, active_environment):
-    interpreter = tmp_path / "festim-microstructure" / "bin" / "python"
-    interpreter.parent.mkdir(parents=True)
-    interpreter.touch(mode=0o755)
-    active = tmp_path / active_environment
+@pytest.mark.parametrize(
+    "version,has_upxo",
+    [((3, 12), True), ((3, 13), False), ((3, 13), True)],
+)
+def test_active_interpreter_requires_python_313_and_upxo(
+    monkeypatch, version, has_upxo
+):
     monkeypatch.delenv("FM_EBSD_PYTHON", raising=False)
-    monkeypatch.setattr(_worker.sys, "prefix", str(active))
-    monkeypatch.setattr(_worker.sys, "executable", str(active / "bin" / "python"))
-    monkeypatch.setattr(_worker.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(_worker.sys, "version_info", version)
+    monkeypatch.setattr(
+        _worker.importlib.util, "find_spec", lambda name: object() if has_upxo else None
+    )
 
-    if active_environment == "festim-microstructure":
-        # A pre-upgrade environment without UPXO must not discover itself.
+    if version >= (3, 13) and has_upxo:
+        assert _worker.resolve_python() == _worker.sys.executable
+    else:
         assert _worker.resolve_python(required=False) is None
         with pytest.raises(FileNotFoundError, match=r"environment\.yml"):
             _worker.resolve_python()
-    else:
-        assert _worker.resolve_python() == str(interpreter)
 
 
 def test_worker_failure_preserves_accepted_outputs(tmp_path, monkeypatch):
@@ -57,7 +53,7 @@ def test_worker_failure_preserves_accepted_outputs(tmp_path, monkeypatch):
     write_ebsd(source, EbsdData(labels, np.array([[1.0, 0, 0, 0]]), (1, 1)))
     mesh = tmp_path / "poly.msh4"
     mesh.write_bytes(b"previous accepted mesh")
-    monkeypatch.setattr(_worker, "resolve_python", lambda explicit: "/fake/python")
+    monkeypatch.setattr(_worker, "resolve_python", lambda: "/fake/python")
     monkeypatch.setattr(_worker, "probe_worker", lambda *a, **kw: {"python": "fake"})
 
     def failed_worker(command, **kwargs):
@@ -93,7 +89,7 @@ def test_worker_failure_preserves_accepted_outputs(tmp_path, monkeypatch):
     ],
 )
 def test_environment_probe_errors_are_actionable(monkeypatch, error):
-    monkeypatch.setattr(_worker, "resolve_python", lambda explicit: "/fake/python")
+    monkeypatch.setattr(_worker, "resolve_python", lambda: "/fake/python")
 
     def fail(*args, **kwargs):
         raise error
@@ -111,8 +107,8 @@ def test_import_identity_observes_environment_variable_and_package_changes(
     ctf = ctf_writer(tmp_path / "map.ctf", np.zeros((4, 4, 3)))
     observed = {"version": "first"}
 
-    def probe(executable, **kwargs):
-        return {"executable": _worker.resolve_python(executable), **observed}
+    def probe(**kwargs):
+        return {"executable": _worker.resolve_python(), **observed}
 
     monkeypatch.setattr(_worker, "probe_worker", probe)
     conversion = CtfConversion(Settings(ctf=str(ctf)))
@@ -132,7 +128,7 @@ def test_mesh_cache_checks_worker_digest_and_environment(tmp_path, monkeypatch):
         source, EbsdData(np.ones((4, 4), dtype=int), np.array([[1.0, 0, 0, 0]]), (1, 1))
     )
     observed = {"version": "first"}
-    monkeypatch.setattr(_worker, "resolve_python", lambda explicit: "/fake/python")
+    monkeypatch.setattr(_worker, "resolve_python", lambda: "/fake/python")
     monkeypatch.setattr(_worker, "probe_worker", lambda *a, **kw: dict(observed))
     calls = []
 

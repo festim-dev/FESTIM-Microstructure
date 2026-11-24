@@ -114,7 +114,6 @@ class CtfConversion:
         settings: Settings,
         log=print,
         *,
-        python=None,
         timeout=_options.DEFAULT_WORKER_TIMEOUT,
         check_images=False,
     ):
@@ -123,7 +122,6 @@ class CtfConversion:
         _options._validate_timeout(timeout)
         self.settings = settings
         self.log = log or (lambda *args: None)
-        self.python = python
         self.timeout = timeout
         self.check_images = check_images
 
@@ -174,7 +172,6 @@ class CtfConversion:
             self.ok,
             opt,
             log=self.log,
-            python=self.python,
             timeout=self.timeout,
         )
         source = imported["source_labels"]
@@ -288,9 +285,7 @@ class CtfConversion:
                         Path(self.settings.ctf).read_bytes()
                     ).hexdigest(),
                     upxo_revision=_upxo.UPXO_REVISION,
-                    worker_environment=_worker.probe_worker(
-                        self.python, timeout=self.timeout
-                    ),
+                    worker_environment=_worker.probe_worker(timeout=self.timeout),
                     code_sha256=hashlib.sha256(
                         Path(__file__).read_bytes()
                         + Path(_worker.__file__).read_bytes()
@@ -389,7 +384,6 @@ def convert(
     settings: Settings | None = None,
     log=print,
     force=True,
-    python=None,
     timeout=_options.DEFAULT_WORKER_TIMEOUT,
     check_images=False,
     **kwargs,
@@ -409,7 +403,6 @@ def convert(
     return CtfConversion(
         settings,
         log,
-        python=python,
         timeout=timeout,
         check_images=check_images,
     ).run(output, force=force)

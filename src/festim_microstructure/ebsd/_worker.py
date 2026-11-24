@@ -28,32 +28,23 @@ def _worker_command(executable, mode, path):
     return [executable, "-I", str(WORKER_SCRIPT), mode, str(path)]
 
 
-def resolve_python(explicit=None, required=True):
-    """Choose the EBSD interpreter: explicit path, FM_EBSD_PYTHON, then local.
+def resolve_python(required=True):
+    """Choose the EBSD interpreter from FM_EBSD_PYTHON or the active environment.
 
-    The named conda environment beside the current one is also discovered.
-    An explicitly configured missing interpreter is an error, not a fallback.
+    The active interpreter qualifies when it has Python 3.13 or newer and UPXO.
     """
     if os.environ.get("FM_UPXO_PYTHON"):
         warnings.warn(
             f"Set {PYTHON_ENV} for the EBSD worker and unset FM_UPXO_PYTHON.",
             stacklevel=2,
         )
-    configured = explicit or os.environ.get(PYTHON_ENV)
+    configured = os.environ.get(PYTHON_ENV)
     if configured:
-        executable = shutil.which(str(configured))
+        executable = shutil.which(configured)
         if executable:
             return executable
-    else:
-        if sys.version_info >= (3, 13) and importlib.util.find_spec("upxo"):
-            return sys.executable
-        sibling = Path(sys.prefix).parent / "festim-microstructure" / "bin" / "python"
-        if (
-            sibling.is_file()
-            and sibling.resolve() != Path(sys.executable).resolve()
-            and os.access(sibling, os.X_OK)
-        ):
-            return str(sibling)
+    elif sys.version_info >= (3, 13) and importlib.util.find_spec("upxo"):
+        return sys.executable
     if required:
         raise FileNotFoundError(
             "UPXO Python interpreter not found. Create and activate "
@@ -69,10 +60,11 @@ def probe_worker(executable=None, *, health=False, timeout=30.0):
     Run in isolation just like the importer/mesher. No probe is cached, so an
     environment replacement at the same interpreter path invalidates results.
     """
-    try:
-        executable = resolve_python(executable)
-    except FileNotFoundError as exc:
-        raise RuntimeError(f"UPXO environment probe failed: {exc}") from exc
+    if executable is None:
+        try:
+            executable = resolve_python()
+        except FileNotFoundError as exc:
+            raise RuntimeError(f"UPXO environment probe failed: {exc}") from exc
     mode = "--health" if health else "--environment"
     with tempfile.TemporaryDirectory(prefix="upxo-probe-") as scratch:
         output = Path(scratch) / "environment.json"
@@ -107,7 +99,6 @@ def mesh_grains(
     stem="poly",
     unit=1e-6,
     force=True,
-    python=None,
     timeout=DEFAULT_WORKER_TIMEOUT,
 ):
     """Mesh a native EBSD archive and write tagged SI and diagnostic outputs.
@@ -129,7 +120,7 @@ def mesh_grains(
     archive = Path(archive).resolve()
     data = read_ebsd(archive)
     labels, vox = data.labels, np.asarray(data.vox)
-    executable = resolve_python(python)
+    executable = resolve_python()
     base = Path(workdir).resolve() / stem
     base.parent.mkdir(parents=True, exist_ok=True)
     settings = asdict(options)
@@ -205,7 +196,6 @@ def import_ebsd(
     settings,
     log=print,
     *,
-    python=None,
     timeout=DEFAULT_WORKER_TIMEOUT,
 ):
     """Canonicalize the cropped, filtered CTF and invoke UPXO's EBSDReader.
@@ -215,7 +205,7 @@ def import_ebsd(
     both pixel spacings in the native archive. Phase/quality rejections become
     phase zero before detection, so they cannot bridge surviving grains.
     """
-    executable = resolve_python(python)
+    executable = resolve_python()
     with tempfile.TemporaryDirectory(prefix="upxo-import-") as scratch:
         stage = Path(scratch)
         ny, nx = indexed.shape

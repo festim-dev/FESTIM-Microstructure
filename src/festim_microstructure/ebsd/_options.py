@@ -158,7 +158,6 @@ class EbsdOptions:
     mesh: UpxoMeshOptions | None = field(default_factory=UpxoMeshOptions)
     stem: str = "poly"
     check_images: bool = True
-    python: str | None = None
     timeout: float = DEFAULT_WORKER_TIMEOUT
 
     def __post_init__(self):

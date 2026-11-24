@@ -3,9 +3,7 @@
 `fm.run_ebsd_pipeline` imports a CTF map through UPXO/DefDAP, meshes the
 grains with UPXO, and returns the `EbsdMicrostructure` after checking its mesh
 and tags in DOLFINx. The path stem of the saved files is `micro.base`. Start with
-the [EBSD quick start](../README.md#measured-ebsd-meshes). The
-[UPXO evaluation](upxo_evaluation.md) describes the backend and validation
-results.
+the [EBSD quick start](../README.md#measured-ebsd-meshes).
 
 ## Import settings
 
@@ -86,10 +84,9 @@ A failed meshing worker retains the previous accepted mesh and writes a failure
 validation report and log.
 
 In the standard environment, the active interpreter runs both the mesher and
-solver. `EbsdOptions(python=...)` selects one interpreter for both worker stages.
-Otherwise the pipeline uses `FM_EBSD_PYTHON` or automatic discovery. Set
-`timeout` to adjust the per-invocation limit of 600 seconds. Standalone
-`convert` and `mesh_grains` accept `python` and `timeout` keyword arguments.
+solver. Set `FM_EBSD_PYTHON` to run both EBSD worker stages in another interpreter.
+`EbsdOptions`, `convert`, and `mesh_grains` accept `timeout` to adjust the
+per-invocation limit of 600 seconds.
 
 `EbsdOptions(check_images=False)` skips import and mesh plots while producing
 the numeric reports. Standalone `convert` generates plots with

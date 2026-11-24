@@ -60,7 +60,8 @@ fm-check --ebsd
 
 The editable install makes the modules under `src/` available to examples and
 scripts. `--no-deps` preserves the dependency stack installed by the environment
-file. The active interpreter runs both the solver and EBSD mesher.
+file. The active interpreter runs both the solver and EBSD mesher. Set
+`FM_EBSD_PYTHON` to run the EBSD worker in a different interpreter.
 
 CI creates this environment from scratch and runs the complete test suite;
 missing dependencies or skipped tests fail that job. To check EBSD mesh
@@ -90,13 +91,13 @@ its health check. It looks like:
 python-side stack
   festim_microstructure  0.1.dev15
   ...
-  dolfinx                0.10.0
-  festim                 2.2rc2
+  dolfinx                0.11.0
+  festim                 2.2
   gmsh (python-gmsh)     4.15.2
   ...
   EBSD interpreter       /home/you/miniforge3/envs/festim-microstructure/bin/python
   EBSD worker            OK (runtime imports verified)
-    upxo                 1.3.1
+    upxo                 1.5.0
     defdap               0.93.6
 ```
 
@@ -116,11 +117,13 @@ Python API used by the mesh builders.
 From the repository checkout, update the standard environment and reinstall:
 
 ```bash
-conda env update -n festim-microstructure -f environment.yml --prune
+conda env update -n festim-microstructure -f environment.yml
 conda activate festim-microstructure
+unset FM_UPXO_PYTHON
 python -m pip install --no-deps -e .
+python -m pip check
 fm-check --ebsd
-FM_REQUIRE_FULL_STACK=1 python -m pytest -q test/ebsd/test_pipeline.py
+FM_REQUIRE_FULL_STACK=1 python -m pytest -q
 ```
 
 This also upgrades an existing Python 3.12 `festim-microstructure` environment
@@ -145,20 +148,20 @@ interpreter and does not require UPXO in a separate solver interpreter.
 
 ### Version coupling
 
-FESTIM is pinned in `environment.yml`, and DOLFINx is pinned to a minor range
-alongside it. These two must be bumped together: FESTIM moved to DOLFINx 0.11
-and replaced `adios4dolfinx` with `io4dolfinx` in
+FESTIM is pinned in `environment.yml` alongside a DOLFINx version range.
+The FESTIM 2.2 stack was verified with DOLFINx 0.11.0. FESTIM moved to
+DOLFINx 0.11 and replaced `adios4dolfinx` with `io4dolfinx` in
 [festim-dev/FESTIM#1173](https://github.com/festim-dev/FESTIM/pull/1173),
 merged one day before the 2.1 release. An unpinned DOLFINx will drift out from
 under a pinned FESTIM and fail at import or at assembly.
 
-If `pip` attempts to build `scifem` from source during installation, the
-conda-forge `scifem` build is older than the pinned FESTIM requires. Either
-relax the FESTIM pin or install it without resolving dependencies:
+If `pip` attempts to build `scifem` from source, check that the active Conda
+environment supplies `scifem>=0.20.0`. Once Conda supplies FESTIM's
+dependencies, you can install the pinned wheel directly.
 
 ```bash
-pip install --no-deps festim==2.2rc2
-pip check
+python -m pip install --no-deps festim==2.2
+python -m pip check
 ```
 
 ## Repository layout

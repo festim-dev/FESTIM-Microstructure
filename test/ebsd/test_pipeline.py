@@ -43,7 +43,7 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
     executable = _worker.resolve_python(required=False)
     if executable is None:
         pytest.skip("configure FM_EBSD_PYTHON for the UPXO integration test")
-    monkeypatch.setenv("FM_EBSD_PYTHON", "/missing-upxo-python")
+    monkeypatch.setenv("FM_EBSD_PYTHON", executable)
     worker_path = str(Path(_upxo.__file__).resolve())
     worker_calls = []
     subprocess_run = _worker.subprocess.run
@@ -56,7 +56,7 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
         return subprocess_run(command, **kwargs)
 
     monkeypatch.setattr(_worker.subprocess, "run", isolated_run)
-    assert _worker.probe_worker(executable, health=True)["health"] == "ok"
+    assert _worker.probe_worker(health=True)["health"] == "ok"
     labels = np.ones((12, 16), dtype=np.int32)
     labels[4:8, 6:10] = 2
     orientations = np.zeros((*labels.shape, 3))
@@ -67,7 +67,6 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
         unit=1e-6,
         theta_min=4.0,
         check_images=False,
-        python=executable,
         timeout=120.0,
         import_settings=Settings(ctf=str(ctf), min_pixels=1, crop=(0, 8, 0, 9)),
         mesh=ebsd.UpxoMeshOptions(smoothing="none"),
