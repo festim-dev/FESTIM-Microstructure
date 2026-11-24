@@ -22,7 +22,7 @@ import festim_microstructure as fm
 | EBSD import | Conversion of EBSD orientation maps into conforming grain meshes |
 | FESTIM declarations | Tagged grains, the codimension-one network, per-grain surface patches, lattice and boundary diffusivity fields, species, and exchange terms |
 | Post-processing | Grain-plus-network inventories and flux averages, network topology checks |
-| Benchmarks | Diaz-Rodriguez baseline, dimensional and non-dimensionalised |
+| Examples | Voronoi and EBSD transport, homogenisation, and paper reproductions. [Runnable examples](examples/README.md) |
 
 The transport model itself is FESTIM's. Every grain is a
 `festim.VolumeSubdomain` with a `festim.Species` of its own, the grain-boundary
@@ -164,52 +164,22 @@ pip check
 
 ```
 FESTIM-Microstructure/
-├── environment.yml             # Python 3.13 environment for all workflows
-├── pyproject.toml
-├── README.md
 ├── docs/
-│   └── gb_homogenisation.md    # the homogenisation study, with figures
+├── examples/
 ├── src/festim_microstructure/
-│   ├── __init__.py              # public API with ordinary imports
-│   ├── check.py                # fm-check environment diagnostic
-│   ├── microstructure.py       # microstructure protocols, TaggedMicrostructure
-│   ├── materials.py            # lattice diffusivity tensors and fields
-│   ├── msh4.py                  # generic tagged Gmsh mesh readers
-│   ├── ebsd/                    # CTF import, UPXO meshing, and EBSD topology
-│   │   ├── _options.py
-│   │   ├── _pipeline.py
-│   │   ├── _topology.py
-│   │   ├── _orientation.py
-│   │   ├── _ctf.py
-│   │   ├── _archive.py
-│   │   ├── _provenance.py
-│   │   ├── _grains.py
-│   │   ├── _upxo.py
-│   │   ├── _worker.py
-│   │   ├── _import_checks.py
-│   │   ├── _mesh_checks.py
-│   │   └── _plotting.py          # diagnostic raster colours and scale bars
-│   ├── voronoi/                 # generated 2D/3D tessellations and Gmsh meshes
-│   │   ├── geometry.py
-│   │   ├── gmsh_builder.py
-│   │   └── polycrystal.py
-│   ├── fem/
-│   │   ├── _system.py          # common FESTIM transport declarations
-│   │   ├── solvers.py          # tune_direct_solver: the MUMPS workspace workaround
-│   │   └── subdomains.py       # Grain, GrainBoundaryNetwork, GrainSurface + factories
-│   └── postprocessing/
-│       ├── measures.py         # submesh measures and network topology checks
-│       └── averages.py         # grain+network averages, inventory, fields, VTX output
-├── examples/                   # runnable workflows; not part of the library API
-│   ├── gb_homogenisation.py    # RVE identification, validation and figures
-│   ├── li2022_fig4*.py         # Li et al. (2022) reproduction scripts
-│   └── ...                     # usage examples and data/
-└── test/                       # pytest in the standard environment
+│   ├── microstructure.py       # shared contract and tagged-mesh adapter
+│   ├── materials.py            # lattice diffusivity fields
+│   ├── ebsd/                   # measured microstructures
+│   ├── voronoi/                # tessellation and meshing
+│   ├── fem/                    # FESTIM subdomains and transport declarations
+│   └── postprocessing/         # measures, averages, and VTX output
+├── test/
+└── tools/
 ```
 
-Nothing importable sits at the repository root. The package imports its public
-API directly and requires the FESTIM/DOLFINx stack. Run the examples, conversion
-tools, `fm-check`, and tests from the installed
+Find workflow guides, runnable cases, regression tests, and evaluation utilities
+in [docs/](docs/), [examples/](examples/), [test/](test/), and [tools/](tools/).
+Run the examples, tools, `fm-check`, and tests in the installed
 `festim-microstructure` environment.
 
 ## Usage
