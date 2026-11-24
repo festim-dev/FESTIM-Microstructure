@@ -101,7 +101,7 @@ def probe_worker(executable=None, *, health=False, timeout=30.0):
 
 def mesh_grains(
     archive,
-    options=None,
+    options: UpxoMeshOptions | None = None,
     *,
     workdir="results",
     stem="poly",
@@ -118,8 +118,10 @@ def mesh_grains(
     """
     _validate_timeout(timeout)
 
-    options = options or UpxoMeshOptions()
-    options.__post_init__()
+    if options is None:
+        options = UpxoMeshOptions()
+    elif not isinstance(options, UpxoMeshOptions):
+        raise TypeError("mesh_grains options must be UpxoMeshOptions")
     if not np.isfinite(unit) or unit <= 0:
         raise ValueError("unit must be finite and positive")
     if not stem or Path(stem).name != stem or stem in (".", ".."):
@@ -213,7 +215,6 @@ def import_ebsd(
     both pixel spacings in the native archive. Phase/quality rejections become
     phase zero before detection, so they cannot bridge surviving grains.
     """
-    _validate_timeout(timeout)
     executable = resolve_python(python)
     with tempfile.TemporaryDirectory(prefix="upxo-import-") as scratch:
         stage = Path(scratch)

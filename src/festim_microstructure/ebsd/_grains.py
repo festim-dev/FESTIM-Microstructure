@@ -111,13 +111,15 @@ class CtfConversion:
 
     def __init__(
         self,
-        settings,
+        settings: Settings,
         log=print,
         *,
         python=None,
         timeout=_options.DEFAULT_WORKER_TIMEOUT,
         check_images=False,
     ):
+        if not isinstance(settings, Settings):
+            raise TypeError("settings must be Settings")
         _options._validate_timeout(timeout)
         self.settings = settings
         self.log = log or (lambda *args: None)
@@ -127,7 +129,6 @@ class CtfConversion:
 
     def read(self):
         opt = self.settings
-        opt.__post_init__()
         self.ctf = CtfMap(opt.ctf)
         self.crysym, phase = self.ctf.crysym(opt.phase)
         if phase is None or phase["laue"] not in CUBIC_LAUE:
@@ -385,7 +386,7 @@ def convert(
     ctf_path=None,
     output=None,
     *,
-    settings=None,
+    settings: Settings | None = None,
     log=print,
     force=True,
     python=None,
@@ -399,12 +400,14 @@ def convert(
     pixels never determine grain means, even when filling includes them in the
     geometry. The archive retains their original status for later diagnostics.
     """
-    if kwargs and settings is not None:
+    if settings is None:
+        if ctf_path is None:
+            raise TypeError("pass ctf_path or a Settings object")
+        settings = Settings(ctf=str(ctf_path), **kwargs)
+    elif kwargs:
         raise TypeError("pass either a Settings object or keyword arguments")
-    if settings is None and ctf_path is None:
-        raise TypeError("pass ctf_path or a Settings object")
     return CtfConversion(
-        settings or Settings(ctf=str(ctf_path), **kwargs),
+        settings,
         log,
         python=python,
         timeout=timeout,

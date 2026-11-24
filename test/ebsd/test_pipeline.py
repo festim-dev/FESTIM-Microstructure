@@ -1,6 +1,7 @@
 """Exercise the real UPXO worker and its tagged DOLFINx reconstruction."""
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -194,8 +195,7 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
             return run(command, **kwargs)
 
         context.setattr(_worker.subprocess, "run", unexpected_worker)
-        options.check_images = True
-        options.timeout = 150.0
+        options = replace(options, check_images=True, timeout=150.0)
         cached = fm.run_ebsd_pipeline(options, workdir=tmp_path, force=False)
         assert cached.base == base
     assert base.with_suffix(".msh4").read_bytes() == original
@@ -211,8 +211,7 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
         )
     }
 
-    options.check_images = False
-    options.unit = 1e-3
+    options = replace(options, check_images=False, unit=1e-3)
     scaled = ebsd.run_ebsd_pipeline(options, workdir=tmp_path, force=False)
     assert scaled.base == base
     np.testing.assert_allclose(scaled.mesh.geometry.x.max(axis=0), [8e-3, 9e-3, 0])

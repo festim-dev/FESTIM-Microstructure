@@ -10,8 +10,10 @@ results.
 ## Import settings
 
 Set the CTF path in `fm.ebsd.Settings` and pass those settings to
-`fm.EbsdOptions(import_settings=...)`. Supply the crop as a tuple
+`fm.EbsdOptions(import_settings=...)`. Supply the crop as a tuple or list
 `(xmin, xmax, ymin, ymax)` in the source coordinate units.
+The pipeline, import, and mesh options are immutable. Use `dataclasses.replace()`
+to vary a setting across runs.
 
 Quality and phase filters and the crop apply before UPXO's `EBSDReader` detects
 grains. DefDAP supplies grain labels and cubic symmetry equivalents. The importer

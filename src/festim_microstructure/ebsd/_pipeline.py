@@ -7,7 +7,7 @@ from mpi4py import MPI
 
 from ._grains import convert
 from ._mesh_checks import mesh_diagnostics, write_network_png
-from ._options import UpxoMeshOptions
+from ._options import EbsdOptions
 from ._plotting import unit_name
 from ._topology import EbsdMicrostructure
 from ._worker import mesh_grains, resolve_python
@@ -16,7 +16,7 @@ __all__ = ["run_ebsd_pipeline"]
 
 
 def run_ebsd_pipeline(
-    options, workdir: str | Path = "results", force=True
+    options: EbsdOptions, workdir: str | Path = "results", force=True
 ) -> EbsdMicrostructure:
     """Import, mesh, check source geometry/orientations and load FESTIM tags.
 
@@ -25,9 +25,6 @@ def run_ebsd_pipeline(
     reconstructed FESTIM network is reported alongside geometry diagnostics.
     The returned microstructure's ``base`` is the path stem of the saved files.
     """
-    options.__post_init__()
-    if not isinstance(options.mesh, UpxoMeshOptions):
-        raise TypeError("EbsdOptions.mesh must be UpxoMeshOptions")
     display_unit = unit_name(options.unit)
     # Only one rank imports/publishes files; all ranks load the accepted mesh.
     # Propagate preparation failures before entering collective mesh import.

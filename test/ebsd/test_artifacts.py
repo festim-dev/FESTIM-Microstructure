@@ -152,18 +152,21 @@ def test_euler_correction_left_multiplies_and_round_trips(tmp_path):
     result = convert(
         ctf,
         tmp_path / "map.npz",
+        crop=[0, 4, 0, 3],
         min_pixels=1,
-        euler_correction=(180.0, 0.0, 0.0),
+        euler_correction=[180, 0, 0],
         log=None,
     )
     q = euler_bunge_to_quat(*GENERIC_EULER)
     assert _file_vs(result, qmul(euler_bunge_to_quat(180.0, 0.0, 0.0), q)) < 1e-5
     assert _file_vs(result, q) > 1.0
-    assert settings_from_provenance(result.provenance).euler_correction == [
-        180.0,
-        0.0,
-        0.0,
-    ]
+    record = read_provenance(result.provenance)
+    assert record["version"] == 2
+    assert record["crop"] == [0.0, 4.0, 0.0, 3.0]
+    assert record["euler_correction"] == [180.0, 0.0, 0.0]
+    saved = settings_from_provenance(result.provenance)
+    assert saved.crop == (0.0, 4.0, 0.0, 3.0)
+    assert saved.euler_correction == (180.0, 0.0, 0.0)
     measured = measure_against_ctf(
         ctf, result.archive, MeasureOptions(provenance=str(result.provenance)), log=None
     )
