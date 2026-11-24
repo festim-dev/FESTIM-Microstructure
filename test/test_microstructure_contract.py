@@ -7,13 +7,14 @@ and the real classes are checked against the protocol without building a mesh.
 import numpy as np
 import pytest
 
+from festim_microstructure.ebsd import EbsdMicrostructure
 from festim_microstructure.microstructure import (
     BoundaryTopology,
     GeometricBoundaryLocator,
     MeshedMicrostructure,
     Microstructure,
     PlanarLatticeOrientations,
-    TaggedPolycrystal,
+    TaggedMicrostructure,
 )
 from festim_microstructure.voronoi import VoronoiMicrostructure
 
@@ -81,9 +82,11 @@ def test_missing_members_are_named_rather_than_just_rejected():
     assert not isinstance(stub, MeshedMicrostructure)
 
 
-def test_voronoi_class_declares_the_whole_meshed_contract():
-    """Every protocol member is reachable before a dimension is selected."""
-    assert missing_members(VoronoiMicrostructure, MeshedMicrostructure) == []
+@pytest.mark.parametrize(
+    "implementation", [VoronoiMicrostructure, EbsdMicrostructure, TaggedMicrostructure]
+)
+def test_implementation_declares_the_meshed_contract(implementation):
+    assert missing_members(implementation, MeshedMicrostructure) == []
 
 
 def test_dimension_agnostic_voronoi_fields():
@@ -94,26 +97,18 @@ def test_dimension_agnostic_voronoi_fields():
     assert {"facet_tags", "gb_tag"} <= fields
 
 
-def test_ebsd_class_declares_the_boundary_topology_and_mesh_contracts():
+def test_ebsd_boundary_topology_and_optional_capabilities():
     """EBSD boundary edges supply the topology and disorientation fields."""
-    from festim_microstructure.ebsd.topology import EbsdMicrostructure
-
     assert missing_members(EbsdMicrostructure, BoundaryTopology) == []
-    assert missing_members(EbsdMicrostructure, MeshedMicrostructure) == []
     assert missing_members(EbsdMicrostructure, PlanarLatticeOrientations) == [
         "orientations"
     ]
     assert missing_members(EbsdMicrostructure, GeometricBoundaryLocator) == ["locator"]
 
 
-def test_tagged_polycrystal_satisfies_the_meshed_contract():
-    """Verify tagged polycrystal satisfies the meshed contract."""
-    assert missing_members(TaggedPolycrystal, MeshedMicrostructure) == []
-
-
-def test_tagged_polycrystal_fills_in_the_ids_and_the_orientations():
+def test_tagged_microstructure_fills_in_the_ids_and_the_orientations():
     """Given ids, it needs no mesh to answer: the defaults are derived, not read."""
-    poly = TaggedPolycrystal(
+    poly = TaggedMicrostructure(
         mesh=object(), cell_tags=object(), grain_ids=np.array([1, 2, 5])
     )
     assert poly.n_grains == 3
@@ -123,13 +118,13 @@ def test_tagged_polycrystal_fills_in_the_ids_and_the_orientations():
     assert missing_members(poly, MeshedMicrostructure) == []
 
 
-def test_tagged_polycrystal_says_so_when_it_has_no_geometric_locator():
+def test_tagged_microstructure_says_so_when_it_has_no_geometric_locator():
     """A geometric network requires a configured locator."""
     from types import SimpleNamespace
 
     from festim_microstructure import grain_boundary_network
 
-    poly = TaggedPolycrystal(
+    poly = TaggedMicrostructure(
         mesh=SimpleNamespace(topology=SimpleNamespace(dim=2)),
         cell_tags=object(),
         grain_ids=np.array([1]),
@@ -139,9 +134,9 @@ def test_tagged_polycrystal_says_so_when_it_has_no_geometric_locator():
         grain_boundary_network(2, poly, object())
 
 
-def test_tagged_polycrystal_uses_the_locator_it_was_given():
+def test_tagged_microstructure_uses_the_locator_it_was_given():
     """Verify tagged polycrystal uses the locator it was given."""
-    poly = TaggedPolycrystal(
+    poly = TaggedMicrostructure(
         mesh=object(),
         cell_tags=object(),
         grain_ids=np.array([1]),

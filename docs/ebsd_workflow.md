@@ -1,14 +1,17 @@
 # EBSD workflow
 
 `fm.run_ebsd_pipeline` imports a CTF map through UPXO/DefDAP, meshes the
-grains with UPXO, and checks the mesh and its tags in DOLFINx. Start with
+grains with UPXO, and returns the `EbsdMicrostructure` after checking its mesh
+and tags in DOLFINx. The path stem of the saved files is `micro.base`. Start with
 the [EBSD quick start](../README.md#measured-ebsd-meshes).
 
 ## Import settings
 
 Set the CTF path in `fm.ebsd.Settings` and pass those settings to
-`fm.EbsdOptions(import_settings=...)`. Supply the crop as a tuple
+`fm.EbsdOptions(import_settings=...)`. Supply the crop as a tuple or list
 `(xmin, xmax, ymin, ymax)` in the source coordinate units.
+The pipeline, import, and mesh options are immutable. Use `dataclasses.replace()`
+to vary a setting across runs.
 
 Quality and phase filters and the crop apply before UPXO's `EBSDReader` detects
 grains. DefDAP supplies grain labels and cubic symmetry equivalents. The importer
@@ -71,18 +74,19 @@ Import provenance uses format version 2 and stores crop bounds as a JSON array.
 With `force=False`, unsupported provenance versions trigger a fresh import.
 
 For separate import/inspection, use
-`fm.ebsd.grains.convert(ctf, "grains.npz", ...)` and
-`fm.ebsd.grains.measure_against_ctf(ctf, "grains.npz")`.
-`fm.ebsd.upxo.mesh_ebsd("grains.npz", ...)` meshes an existing native archive.
+`fm.ebsd.convert(ctf, "grains.npz", ...)` and
+`fm.ebsd.measure_against_ctf(ctf, "grains.npz")`.
+`fm.ebsd.mesh_grains("grains.npz", ...)` meshes an existing native archive.
 `force=False` checks source/settings/code and output hashes before cache reuse.
+For meshing, the code digest covers the executable worker and the cache key
+also includes the serialized mesh options. An older digest triggers a rebuild.
 A failed meshing worker retains the previous accepted mesh and writes a failure
 validation report and log.
 
 In the standard environment, the active interpreter runs both the mesher and
-solver. `EbsdOptions(python=...)` selects one interpreter for both worker stages.
-Otherwise the pipeline uses `FM_UPXO_PYTHON` or automatic discovery. Set
-`timeout` to adjust the per-invocation limit of 600 seconds. Standalone
-`convert` and `mesh_ebsd` accept `python` and `timeout` keyword arguments.
+solver. Set `FM_EBSD_PYTHON` to run both EBSD worker stages in another interpreter.
+`EbsdOptions`, `convert`, and `mesh_grains` accept `timeout` to adjust the
+per-invocation limit of 600 seconds.
 
 `EbsdOptions(check_images=False)` skips import and mesh plots while producing
 the numeric reports. Standalone `convert` generates plots with

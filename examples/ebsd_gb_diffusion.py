@@ -3,7 +3,7 @@ EBSD, in 2D.
 
 The mesh is UPXO's validated meshing of the raster, so the grain boundaries are
 the measured ones and each boundary's disorientation comes from the two grains'
-measured orientations. See :mod:`festim_microstructure.ebsd.topology`.
+measured orientations. See :class:`festim_microstructure.ebsd.EbsdMicrostructure`.
 
 Every measured grain carries a lattice species of its own and exchanges with the
 one network species at the rate ``k``; the network is the list of edge ids above
@@ -88,9 +88,9 @@ model = F.HydrogenTransportProblemDiscontinuous(
     ),
 )
 model.initialise()
-fm.fem.tune_direct_solver(model)
+fm.tune_direct_solver(model)
 model.run()
-fm.exports.averages.write_vtx(
+fm.postprocessing.averages.write_vtx(
     grains,
     grain_species,
     network,
@@ -103,7 +103,7 @@ cgb = c_gb.subdomain_to_post_processing_solution[network]
 # Inspect the mesh and boundary network
 print(micro.report())
 len_mesh, len_tess = (
-    fm.exports.measures.submesh_measure(network),
+    fm.postprocessing.measures.submesh_measure(network),
     micro.network_measure,
 )
 n_tri = mesh.topology.index_map(2).size_global
@@ -112,7 +112,7 @@ print(f"  grains (tagged pieces)          : {micro.n_grains}")
 print(f"  network captured by the submesh : {100 * len_mesh / len_tess:.2f} %")
 print(
     f"  connected components            : "
-    f"{fm.exports.measures.component_count(network)}"
+    f"{fm.postprocessing.measures.component_count(network)}"
 )
 print(f"  interior facets                 : {model.manifold_is_interior(network)}")
 
@@ -121,7 +121,9 @@ depth = micro.junction_only_below(LY)
 gb_y = cgb.function_space.tabulate_dof_coordinates()[:, 1]
 deep = gb_y < depth
 c_deep = cgb.x.array[deep].max() if deep.any() else 0.0
-total = fm.exports.averages.inventory(grains, grain_species, network, c_gb, delta)
+total = fm.postprocessing.averages.inventory(
+    grains, grain_species, network, c_gb, delta
+)
 print(f"\n  inventory                      : {total:.4e}")
 # Le Claire's type-B parameter.
 beta = delta * (D_GB / D_B - 1) / (2 * np.sqrt(D_B * t_end))
@@ -130,7 +132,7 @@ grain_size = np.sqrt(LX * LY / micro.n_grains)
 resistance = (2.0 / k_exchange) / (grain_size / D_B)
 print(f"  interface / lattice resistance : {resistance:.1e}  (Fisher is the 0 limit)")
 
-c_grain_deep = fm.exports.averages.lattice_mean_below(
+c_grain_deep = fm.postprocessing.averages.lattice_mean_below(
     grains, grain_species, axis=1, depth=depth
 )
 print("\njunction transport: no boundary touching the charged edge reaches below")

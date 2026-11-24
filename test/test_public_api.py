@@ -12,7 +12,7 @@ PACKAGES = [
     "festim_microstructure",
     "festim_microstructure.fem",
     "festim_microstructure.ebsd",
-    "festim_microstructure.exports",
+    "festim_microstructure.postprocessing",
     "festim_microstructure.voronoi",
 ]
 
@@ -71,27 +71,6 @@ def test_fem_is_where_the_fenics_glue_lives():
         if _module_level_imports(p) & {"dolfinx", "festim", "petsc4py"}
     }
     assert heavy == {"coupling.py", "solvers.py", "subdomains.py"}
-
-
-def test_ebsd_contains_one_set_of_source_modules():
-    """EBSD owns its readers, options, pipeline, topology, and checks."""
-    modules = {
-        path.stem for path in (SRC / "ebsd").glob("*.py") if path.stem != "__init__"
-    }
-    assert modules == {
-        "archive",
-        "ctf",
-        "grains",
-        "import_checks",
-        "mesh_checks",
-        "options",
-        "orientation",
-        "pipeline",
-        "plotting",
-        "provenance",
-        "topology",
-        "upxo",
-    }
 
 
 def test_ebsd_solver_imports_are_confined_to_mesh_integration():

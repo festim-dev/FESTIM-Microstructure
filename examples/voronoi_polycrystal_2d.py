@@ -120,21 +120,21 @@ def grain_network_problem(D_gb):
         ),
     )
     model.initialise()
-    fm.fem.tune_direct_solver(model)
+    fm.tune_direct_solver(model)
     return model, grains, grain_species, network, c_gb
 
 
 # Build and solve
 model, grains, grain_species, network, c_gb = grain_network_problem(D_GB)
 model.run()
-fm.exports.averages.write_vtx(
+fm.postprocessing.averages.write_vtx(
     grains, grain_species, network, c_gb, OUTPUT_DIR / "voronoi", time=t_end
 )
 cgb_fast = c_gb.subdomain_to_post_processing_solution[network]
 
 # Inspect the mesh and boundary network
 ridge_length = fm.voronoi.network_measure(boundaries, dim=2)
-facet_length = fm.exports.measures.submesh_measure(network)
+facet_length = fm.postprocessing.measures.submesh_measure(network)
 print(
     f"microstructure: {n_seeds} seeds, {n_grains} grains, "
     f"{len(boundaries)} boundary segments"
@@ -145,7 +145,10 @@ print(
     "connected components (ridges): "
     f"{fm.voronoi.connected_components(boundaries, dim=2, size=L)}"
 )
-print(f"connected components (submesh): {fm.exports.measures.component_count(network)}")
+print(
+    "connected components (submesh): "
+    f"{fm.postprocessing.measures.component_count(network)}"
+)
 print(f"  facets dropped on the outer box : {network.n_dropped}")
 n_cells = mesh.topology.index_map(2).size_global
 print(f"  mesh                            : {n_cells} cells")
@@ -156,8 +159,8 @@ print(
 print(f"  interior facets                 : {model.manifold_is_interior(network)}")
 
 # Compare fast boundaries with lattice diffusion
-fast = fm.exports.averages.inventory(grains, grain_species, network, c_gb, delta)
-depth = fm.exports.measures.junction_only_below(
+fast = fm.postprocessing.averages.inventory(grains, grain_species, network, c_gb, delta)
+depth = fm.postprocessing.measures.junction_only_below(
     [np.array(boundary) for boundary in boundaries], axis=1, top=L
 )
 gb_y = cgb_fast.function_space.tabulate_dof_coordinates()[:, 1]
@@ -168,7 +171,7 @@ c_deep = cgb_fast.x.array[deep].max() if deep.any() else 0.0
 # cannot be re-run from t = 0 in place.
 reference, *reference_fields = grain_network_problem(D_B)
 reference.run()
-ref = fm.exports.averages.inventory(*reference_fields, delta)
+ref = fm.postprocessing.averages.inventory(*reference_fields, delta)
 
 print(
     f"\nafter t = {t_end} (lattice diffusion alone reaches "
@@ -189,7 +192,7 @@ grain_size = L / np.sqrt(n_grains)
 resistance = (2.0 / k_exchange) / (grain_size / D_B)
 print(f"  interface / lattice resistance : {resistance:.1e}  (Fisher is the 0 limit)")
 
-c_grain_deep = fm.exports.averages.lattice_mean_below(
+c_grain_deep = fm.postprocessing.averages.lattice_mean_below(
     grains, grain_species, axis=1, depth=depth
 )
 print("\njunction transport: no boundary touching the charged surface reaches below")

@@ -112,7 +112,7 @@ class CellProblem:
 
     def averages(self, window=None):
         """Flux, gradient and measure, delegated to the package."""
-        return fm.exports.averages.averages(
+        return fm.postprocessing.averages.averages(
             self.grains,
             self.grain_species,
             self.tensors,
@@ -125,12 +125,12 @@ class CellProblem:
 
     def inventory(self):
         """Hydrogen in the grains plus the width-scaled network."""
-        return fm.exports.averages.inventory(*self.fields, self.transport.delta)
+        return fm.postprocessing.averages.inventory(*self.fields, self.transport.delta)
 
     def solve(self):
         """Initialize and run the cell problem, then return it."""
         self.model.initialise()
-        fm.fem.tune_direct_solver(self.model)
+        fm.tune_direct_solver(self.model)
         self.model.run()
         return self
 
@@ -200,7 +200,7 @@ def hart_bound(cp: CellProblem):
         raise TypeError("this Hart bound requires a 2D VoronoiMicrostructure")
     tensor = fm.voronoi.network_tensor(micro.boundaries, micro.dim)
     return (
-        fm.exports.averages.mean_lattice_tensor(micro, cp.tensors)
+        fm.postprocessing.averages.mean_lattice_tensor(micro, cp.tensors)
         + transport.delta * transport.D_gb / micro.domain_measure * tensor
     )
 
@@ -295,7 +295,7 @@ def identify(
         Q_win[:, j], H_win[:, j] = q_w, g_w
         eq_error = max(
             eq_error,
-            fm.exports.averages.equilibrium_error(*cp.fields, micro.tolerance),
+            fm.postprocessing.averages.equilibrium_error(*cp.fields, micro.tolerance),
         )
         hart = hart_bound(cp)
         if field_cases is not None:
@@ -306,7 +306,7 @@ def identify(
         if export_prefix is not None:
             # the grains as one discontinuous parent field (so the jumps show),
             # and the network as a line dataset
-            fm.exports.averages.write_vtx(
+            fm.postprocessing.averages.write_vtx(
                 *cp.fields, f"{export_prefix}_{'xy'[j]}"
             )
         if verbose:
@@ -440,7 +440,7 @@ def uptake(micro, transport, D_eff, n_steps=60, verbose=True):
     # FESTIM creates progress_bar in run(), which this manual stepping skips.
     cp.model.show_progress_bar = False
     cp.model.initialise()  # the stepping is driven here rather than by run()
-    fm.fem.tune_direct_solver(cp.model)
+    fm.tune_direct_solver(cp.model)
 
     homogeneous, c, volume, _ = homogeneous_model(
         size,

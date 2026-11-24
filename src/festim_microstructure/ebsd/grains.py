@@ -10,9 +10,10 @@ from pathlib import Path
 
 import numpy as np
 
-from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
-from festim_microstructure.ebsd.ctf import CtfMap
-from festim_microstructure.ebsd.import_checks import (
+from . import options, upxo, worker
+from .archive import EbsdData, read_ebsd, write_ebsd
+from .ctf import CtfMap
+from .import_checks import (
     QualityPanels,
     SegmentationError,
     format_report,
@@ -21,21 +22,19 @@ from festim_microstructure.ebsd.import_checks import (
     write_orientation_png,
     write_quality_png,
 )
-from festim_microstructure.ebsd.import_checks import write_png as write_segerr_png
-from festim_microstructure.ebsd.options import (
+from .import_checks import write_png as write_segerr_png
+from .options import (
     CUBIC_LAUE,
     Settings,
     settings_from_provenance,
 )
-from festim_microstructure.ebsd.orientation import (
+from .orientation import (
     ROT_X_180,
     euler_bunge_to_quat,
     qconj,
     qmul,
 )
-from festim_microstructure.ebsd.provenance import read_provenance, write_provenance
-
-from . import upxo
+from .provenance import read_provenance, write_provenance
 
 __all__ = [
     "ConversionResult",
@@ -112,13 +111,15 @@ class CtfConversion:
 
     def __init__(
         self,
-        settings,
+        settings: Settings,
         log=print,
         *,
-        timeout=upxo.DEFAULT_WORKER_TIMEOUT,
+        timeout=options.DEFAULT_WORKER_TIMEOUT,
         check_images=False,
     ):
-        upxo._validate_timeout(timeout)
+        if not isinstance(settings, Settings):
+            raise TypeError("settings must be Settings")
+        options._validate_timeout(timeout)
         self.settings = settings
         self.log = log or (lambda *args: None)
         self.timeout = timeout
@@ -126,7 +127,6 @@ class CtfConversion:
 
     def read(self):
         opt = self.settings
-        opt.__post_init__()
         self.ctf = CtfMap(opt.ctf)
         self.crysym, phase = self.ctf.crysym(opt.phase)
         if phase is None or phase["laue"] not in CUBIC_LAUE:
@@ -166,7 +166,7 @@ class CtfConversion:
 
     def import_grains(self):
         opt = self.settings
-        imported = upxo.import_ebsd(
+        imported = worker.import_ebsd(
             self.ctf,
             self.window,
             self.ok,
@@ -196,7 +196,7 @@ class CtfConversion:
             grains = qmul(opt.euler_correction_quat, grains)
         # The CTF parser independently checks transcription/convention; it does
         # not supply the data used for grain detection or the grain means.
-        from festim_microstructure.ebsd.import_checks import theta_field
+        from .import_checks import theta_field
 
         transcription = theta_field(self.qgrid, pixels)
         if np.max(transcription[self.ok]) > 1e-3:
@@ -285,11 +285,12 @@ class CtfConversion:
                         Path(self.settings.ctf).read_bytes()
                     ).hexdigest(),
                     upxo_revision=upxo.UPXO_REVISION,
-                    worker_environment=upxo.probe_worker(timeout=self.timeout),
+                    worker_environment=worker.probe_worker(timeout=self.timeout),
                     code_sha256=hashlib.sha256(
                         Path(__file__).read_bytes()
-                        + Path(upxo.__file__).read_bytes()
-                        + Path(__file__).with_name("options.py").read_bytes()
+                        + Path(worker.__file__).read_bytes()
+                        + worker.WORKER_SCRIPT.read_bytes()
+                        + Path(options.__file__).read_bytes()
                     ).hexdigest(),
                 )
             )
@@ -380,10 +381,10 @@ def convert(
     ctf_path=None,
     output=None,
     *,
-    settings=None,
+    settings: Settings | None = None,
     log=print,
     force=True,
-    timeout=upxo.DEFAULT_WORKER_TIMEOUT,
+    timeout=options.DEFAULT_WORKER_TIMEOUT,
     check_images=False,
     **kwargs,
 ):
@@ -393,12 +394,14 @@ def convert(
     pixels never determine grain means, even when filling includes them in the
     geometry. The archive retains their original status for later diagnostics.
     """
-    if kwargs and settings is not None:
+    if settings is None:
+        if ctf_path is None:
+            raise TypeError("pass ctf_path or a Settings object")
+        settings = Settings(ctf=str(ctf_path), **kwargs)
+    elif kwargs:
         raise TypeError("pass either a Settings object or keyword arguments")
-    if settings is None and ctf_path is None:
-        raise TypeError("pass ctf_path or a Settings object")
     return CtfConversion(
-        settings or Settings(ctf=str(ctf_path), **kwargs),
+        settings,
         log,
         timeout=timeout,
         check_images=check_images,
@@ -448,7 +451,7 @@ def measure_against_ctf(ctf_path, archive_path, options=None, log=print):
     if opt.png:
         write_segerr_png(opt.png, res, cells, unit=settings.unit, log=log)
     if opt.csv:
-        from festim_microstructure.ebsd.import_checks import write_csv
+        from .import_checks import write_csv
 
         write_csv(opt.csv, res, log=log)
     return res

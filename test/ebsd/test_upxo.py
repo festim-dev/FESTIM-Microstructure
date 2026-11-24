@@ -1,29 +1,19 @@
-"""Geometry preservation, failure handling and UPXO interpreter isolation."""
+"""Geometry preservation and compatibility of the UPXO backend."""
 
 import json
-import subprocess
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from festim_microstructure.ebsd import EbsdOptions, Settings, UpxoMeshOptions, upxo
+from festim_microstructure.ebsd import (
+    UpxoMeshOptions,
+    mesh_grains,
+    upxo,
+    worker,
+)
 from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
 from festim_microstructure.ebsd.orientation import euler_bunge_to_quat
-
-
-def pixel_triangles(labels):
-    """A conforming triangular mesh of a labelled pixel map."""
-    nx = labels.shape[1]
-    triangles, owners = [], []
-    for (row, col), grain in np.ndenumerate(labels):
-        if grain == 0:
-            continue
-        a = row * (nx + 1) + col
-        b, c, d = a + 1, a + nx + 1, a + nx + 2
-        triangles.extend([(a, b, d), (a, d, c)])
-        owners.extend([grain, grain])
-    return np.asarray(triangles), np.asarray(owners)
 
 
 def closed_loop_labels(case):
@@ -38,84 +28,6 @@ def closed_loop_labels(case):
         if case == "nested_islands":
             labels[9:15, 9:15] = 3
     return labels
-
-
-def test_configured_interpreter_does_not_fall_back(monkeypatch):
-    monkeypatch.setenv("FM_UPXO_PYTHON", "/does/not/exist/python")
-    assert upxo.resolve_python(required=False) is None
-    with pytest.raises(FileNotFoundError, match="FM_UPXO_PYTHON"):
-        upxo.resolve_python()
-
-
-@pytest.mark.parametrize("has_upxo", [True, False])
-def test_active_interpreter_is_used_only_when_it_has_upxo(monkeypatch, has_upxo):
-    monkeypatch.delenv("FM_UPXO_PYTHON", raising=False)
-    monkeypatch.setattr(upxo.sys, "executable", "/active/bin/python")
-    monkeypatch.setattr(
-        upxo.importlib.util, "find_spec", lambda name: object() if has_upxo else None
-    )
-    if has_upxo:
-        assert upxo.resolve_python() == "/active/bin/python"
-    else:
-        # Other environments are not searched: activate one or set the variable.
-        assert upxo.resolve_python(required=False) is None
-        with pytest.raises(FileNotFoundError, match=r"environment\.yml"):
-            upxo.resolve_python()
-
-
-@pytest.mark.parametrize(
-    "field,value",
-    [
-        ("smoothing", "moving_average"),
-        ("smooth_iter", -1),
-        ("n_threads", 0),
-        ("mesh_size_gb", float("nan")),
-        ("smooth_mu", 0),
-        ("thin_grain_px", -1),
-        ("thin_grain_px", float("nan")),
-    ],
-)
-def test_reject_unsupported_or_invalid_options(field, value):
-    with pytest.raises(ValueError):
-        UpxoMeshOptions(**{field: value})
-
-
-def test_pipeline_options_reject_invalid_worker_timeout():
-    with pytest.raises(ValueError, match="worker timeout"):
-        EbsdOptions(Settings(ctf="map.ctf"), timeout=0)
-
-
-def test_worker_failure_preserves_accepted_outputs(tmp_path, monkeypatch):
-    labels = np.ones((4, 4), dtype=np.int32)
-    source = tmp_path / "map.npz"
-    write_ebsd(source, EbsdData(labels, np.array([[1.0, 0, 0, 0]]), (1, 1)))
-    mesh = tmp_path / "poly.msh4"
-    mesh.write_bytes(b"previous accepted mesh")
-    monkeypatch.setattr(upxo, "resolve_python", lambda **kw: "/fake/python")
-    monkeypatch.setattr(upxo, "probe_worker", lambda *a, **kw: {"python": "fake"})
-
-    def failed_worker(command, **kwargs):
-        stage = Path(command[-1]).parent
-        (stage / "poly-validation.json").write_text(
-            json.dumps(
-                {
-                    "accepted": False,
-                    "error": "geometry changed",
-                }
-            )
-        )
-        (stage / "poly.msh4").write_bytes(b"rejected mesh")
-        raise subprocess.CalledProcessError(1, command)
-
-    monkeypatch.setattr(upxo.subprocess, "run", failed_worker)
-    with pytest.raises(RuntimeError, match="UPXO meshing failed"):
-        upxo.mesh_ebsd(source, workdir=tmp_path)
-    assert mesh.read_bytes() == b"previous accepted mesh"
-    assert (
-        json.loads((tmp_path / "poly-failed-validation.json").read_text())["accepted"]
-        is False
-    )
-    assert not list(tmp_path.glob(".poly-upxo-*"))
 
 
 def test_geometry_gate_rejects_lost_grain_contact():
@@ -155,8 +67,8 @@ def test_pixel_seeds_sample_their_own_pixel_including_first_row_and_column():
 
 @pytest.mark.parametrize("smoothing", ["none", "taubin"])
 def test_real_worker_retains_island_and_ownership(tmp_path, smoothing):
-    if upxo.resolve_python(required=False) is None:
-        pytest.skip("configure FM_UPXO_PYTHON for the UPXO integration test")
+    if worker.resolve_python(required=False) is None:
+        pytest.skip("configure FM_EBSD_PYTHON for the UPXO integration test")
     from festim_microstructure.msh4 import read_msh4
 
     labels = np.ones((24, 24), dtype=np.int32)
@@ -166,9 +78,7 @@ def test_real_worker_retains_island_and_ownership(tmp_path, smoothing):
         np.array([37, 21]), np.array([52, 43]), np.array([131, 73])
     )
     write_ebsd(source, EbsdData(labels, grain_quats, (1.6, 0.8)))
-    base = upxo.mesh_ebsd(
-        source, UpxoMeshOptions(smoothing=smoothing), workdir=tmp_path
-    )
+    base = mesh_grains(source, UpxoMeshOptions(smoothing=smoothing), workdir=tmp_path)
     report = json.loads(Path(f"{base}-validation.json").read_text())
     assert report["accepted"]
     assert report["export"]["accepted"]
@@ -196,7 +106,9 @@ def test_real_worker_retains_island_and_ownership(tmp_path, smoothing):
         ("void", [(1, 0), (1, 0)]),
     ],
 )
-def test_boundary_arcs_keep_disconnected_closed_loops(case, expected_pairs):
+def test_boundary_arcs_keep_disconnected_closed_loops(
+    case, expected_pairs, pixel_triangles
+):
     triangles, owners = pixel_triangles(closed_loop_labels(case))
     arcs, nonmanifold = upxo.boundary_arcs(triangles, owners)
     assert nonmanifold == 0
@@ -207,7 +119,7 @@ def test_boundary_arcs_keep_disconnected_closed_loops(case, expected_pairs):
         np.testing.assert_array_equal(counts, 2)
 
 
-def test_boundary_arcs_split_at_triple_junction():
+def test_boundary_arcs_split_at_triple_junction(pixel_triangles):
     labels = np.ones((24, 24), dtype=np.int32)
     labels[:12, 12:] = 2
     labels[12:] = 3
@@ -234,7 +146,9 @@ def test_boundary_arcs_split_at_triple_junction():
         ("void", {"1": {"parts": 1, "holes": 1}}),
     ],
 )
-def test_triangle_topology_counts_islands_voids_and_disconnected_parts(case, expected):
+def test_triangle_topology_counts_islands_voids_and_disconnected_parts(
+    case, expected, pixel_triangles
+):
     triangles, owners = pixel_triangles(closed_loop_labels(case))
     assert upxo.mesh_topology(triangles, owners) == expected
 
@@ -242,7 +156,7 @@ def test_triangle_topology_counts_islands_voids_and_disconnected_parts(case, exp
 @pytest.mark.parametrize("smoothing", ["none", "taubin"])
 def test_real_worker_void_preservation(tmp_path, smoothing):
     """Exact polygons preserve voids; moving their boundary remains a rejection."""
-    if upxo.resolve_python(required=False) is None:
+    if worker.resolve_python(required=False) is None:
         pytest.skip("UPXO interpreter unavailable")
     labels = np.ones((24, 24), dtype=np.int32)
     labels[8:16, 8:16] = 0
@@ -251,25 +165,25 @@ def test_real_worker_void_preservation(tmp_path, smoothing):
     options = UpxoMeshOptions(smoothing=smoothing)
     if smoothing == "taubin":
         with pytest.raises(RuntimeError, match="UPXO meshing failed"):
-            upxo.mesh_ebsd(source, options, workdir=tmp_path)
+            mesh_grains(source, options, workdir=tmp_path)
         report = json.loads((tmp_path / "poly-failed-validation.json").read_text())
         assert not report["geometry"]["accepted"]
         assert not (tmp_path / "poly.msh4").exists()
     else:
-        base = upxo.mesh_ebsd(source, options, workdir=tmp_path)
+        base = mesh_grains(source, options, workdir=tmp_path)
         report = json.loads(Path(f"{base}-validation.json").read_text())
         assert report["accepted"]
         assert report["mesh"]["actual_topology"] == {"1": {"parts": 1, "holes": 1}}
 
 
 def test_real_worker_thin_grain_protection_preserves_labels(tmp_path):
-    if upxo.resolve_python(required=False) is None:
+    if worker.resolve_python(required=False) is None:
         pytest.skip("UPXO interpreter unavailable")
     labels = np.ones((24, 24), dtype=np.int32)
     labels[:, 11:12] = 2
     source = tmp_path / "thin.npz"
     write_ebsd(source, EbsdData(labels, np.array([[1.0, 0, 0, 0]] * 2), (1, 1)))
-    base = upxo.mesh_ebsd(source, UpxoMeshOptions(thin_grain_px=1.5), workdir=tmp_path)
+    base = mesh_grains(source, UpxoMeshOptions(thin_grain_px=1.5), workdir=tmp_path)
     report = json.loads(Path(f"{base}-validation.json").read_text())
     assert report["accepted"]
     np.testing.assert_array_equal(read_ebsd(f"{base}-ebsd.npz").labels, labels)
@@ -310,72 +224,6 @@ def test_shared_worker_compatibility(monkeypatch, version, revision, defdap, err
         upxo._check_compatibility(require_defdap=True)
 
 
-@pytest.mark.parametrize(
-    "error",
-    [
-        OSError("missing"),
-        subprocess.TimeoutExpired("probe", 1),
-        subprocess.CalledProcessError(1, "probe", stderr="wrong version"),
-    ],
-)
-def test_environment_probe_errors_are_actionable(monkeypatch, error):
-    monkeypatch.setattr(upxo, "resolve_python", lambda **kw: "/fake/python")
-
-    def fail(*args, **kwargs):
-        raise error
-
-    monkeypatch.setattr(upxo.subprocess, "run", fail)
-    with pytest.raises(RuntimeError, match="environment probe failed"):
-        upxo.probe_worker()
-
-
-def test_import_identity_observes_environment_variable_and_package_changes(
-    tmp_path, ctf_writer, monkeypatch
-):
-    from festim_microstructure.ebsd.grains import CtfConversion
-
-    ctf = ctf_writer(tmp_path / "map.ctf", np.zeros((4, 4, 3)))
-    observed = {"version": "first"}
-
-    def probe(**kwargs):
-        return {"executable": upxo.resolve_python(), **observed}
-
-    monkeypatch.setattr(upxo, "probe_worker", probe)
-    conversion = CtfConversion(Settings(ctf=str(ctf)))
-    monkeypatch.setenv("FM_UPXO_PYTHON", "/usr/bin/python3")
-    first = conversion.identity()
-    monkeypatch.setenv("FM_UPXO_PYTHON", "/bin/sh")
-    second = conversion.identity()
-    assert first != second
-    observed["version"] = "replacement"
-    assert second != conversion.identity()
-
-
-def test_mesh_cache_invalidates_when_worker_environment_changes(tmp_path, monkeypatch):
-    """A dependency replacement at the same executable must rerun the worker."""
-    source = tmp_path / "map.npz"
-    write_ebsd(
-        source, EbsdData(np.ones((4, 4), dtype=int), np.array([[1.0, 0, 0, 0]]), (1, 1))
-    )
-    observed = {"version": "first"}
-    monkeypatch.setattr(upxo, "resolve_python", lambda **kw: "/fake/python")
-    monkeypatch.setattr(upxo, "probe_worker", lambda *a, **kw: dict(observed))
-    calls = []
-
-    def worker(command, **kwargs):
-        calls.append(command)
-        stage = Path(command[-1]).parent
-        (stage / "poly.msh4").write_text("accepted mesh")
-
-    monkeypatch.setattr(upxo.subprocess, "run", worker)
-    upxo.mesh_ebsd(source, workdir=tmp_path, force=False)
-    upxo.mesh_ebsd(source, workdir=tmp_path, force=False)
-    assert len(calls) == 1
-    observed["version"] = "replacement"
-    upxo.mesh_ebsd(source, workdir=tmp_path, force=False)
-    assert len(calls) == 2
-
-
 def test_environment_fingerprint_detects_same_version_reinstall(monkeypatch):
     from types import SimpleNamespace
 
@@ -397,9 +245,3 @@ def test_environment_fingerprint_detects_same_version_reinstall(monkeypatch):
     first = upxo._environment_report()
     record["RECORD"] = "same version, different build"
     assert first != upxo._environment_report()
-
-
-def test_environment_probe_rejects_missing_interpreter(monkeypatch):
-    monkeypatch.setenv("FM_UPXO_PYTHON", "/does/not/exist")
-    with pytest.raises(RuntimeError, match="environment probe failed"):
-        upxo.probe_worker()

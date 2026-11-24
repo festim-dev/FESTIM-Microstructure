@@ -5,16 +5,17 @@ import json
 import numpy as np
 import pytest
 
-from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
-from festim_microstructure.ebsd.grains import (
-    CtfConversion,
+from festim_microstructure.ebsd import (
     MeasureOptions,
+    Settings,
     convert,
     measure_against_ctf,
 )
+from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
+from festim_microstructure.ebsd.grains import CtfConversion
 from festim_microstructure.ebsd.import_checks import verify_readback
 from festim_microstructure.ebsd.mesh_checks import area_change, overlay
-from festim_microstructure.ebsd.options import Settings, settings_from_provenance
+from festim_microstructure.ebsd.options import settings_from_provenance
 from festim_microstructure.ebsd.orientation import (
     ROT_X_180,
     cubic_disorientation_angle,
@@ -23,7 +24,7 @@ from festim_microstructure.ebsd.orientation import (
     qmul,
 )
 from festim_microstructure.ebsd.provenance import read_provenance
-from festim_microstructure.ebsd.upxo import resolve_python
+from festim_microstructure.ebsd.worker import resolve_python
 from festim_microstructure.msh4 import read_msh4
 
 
@@ -151,18 +152,21 @@ def test_euler_correction_left_multiplies_and_round_trips(tmp_path):
     result = convert(
         ctf,
         tmp_path / "map.npz",
+        crop=[0, 4, 0, 3],
         min_pixels=1,
-        euler_correction=(180.0, 0.0, 0.0),
+        euler_correction=[180, 0, 0],
         log=None,
     )
     q = euler_bunge_to_quat(*GENERIC_EULER)
     assert _file_vs(result, qmul(euler_bunge_to_quat(180.0, 0.0, 0.0), q)) < 1e-5
     assert _file_vs(result, q) > 1.0
-    assert settings_from_provenance(result.provenance).euler_correction == [
-        180.0,
-        0.0,
-        0.0,
-    ]
+    record = read_provenance(result.provenance)
+    assert record["version"] == 2
+    assert record["crop"] == [0.0, 4.0, 0.0, 3.0]
+    assert record["euler_correction"] == [180.0, 0.0, 0.0]
+    saved = settings_from_provenance(result.provenance)
+    assert saved.crop == (0.0, 4.0, 0.0, 3.0)
+    assert saved.euler_correction == (180.0, 0.0, 0.0)
     measured = measure_against_ctf(
         ctf, result.archive, MeasureOptions(provenance=str(result.provenance)), log=None
     )

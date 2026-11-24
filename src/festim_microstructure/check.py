@@ -5,7 +5,7 @@ import importlib
 import os
 import sys
 
-from .ebsd.upxo import probe_worker, resolve_python
+from .ebsd.worker import PYTHON_ENV, probe_worker, resolve_python
 
 __all__ = ["main"]
 
@@ -45,7 +45,7 @@ def main(argv=None):
     print(f"  EBSD interpreter       {upxo_python or 'not configured'}")
     if upxo_python is not None:
         try:
-            report = probe_worker(health=True)
+            report = probe_worker(upxo_python, health=True)
             print("  EBSD worker            OK (runtime imports verified)")
             for name, version in report["packages"].items():
                 print(f"    {name:20s} {version}")
@@ -53,7 +53,7 @@ def main(argv=None):
             print(f"  EBSD worker            FAILED: {exc}")
             ok = False
     if upxo_python is None:
-        ok &= not (args.ebsd or os.environ.get("FM_UPXO_PYTHON"))
+        ok &= not (args.ebsd or os.environ.get(PYTHON_ENV))
         print("  EBSD meshing: create and activate environment.yml")
 
     return 0 if ok else 1

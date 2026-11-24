@@ -12,8 +12,16 @@ __all__ = [
     "format_length",
     "nice_length",
     "scale_bar_ax",
+    "unit_name",
     "use_agg",
 ]
+
+_UNIT_NAMES = {1e-9: "nm", 1e-6: "um", 1e-3: "mm", 1.0: "m"}
+
+
+def unit_name(unit):
+    """Display label for a metres-per-source-coordinate scale."""
+    return _UNIT_NAMES.get(unit, "source units")
 
 
 def nice_length(width, fraction=0.25):

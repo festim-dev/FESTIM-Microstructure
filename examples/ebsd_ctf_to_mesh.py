@@ -23,5 +23,5 @@ options = fm.EbsdOptions(
     unit=1e-6,
     theta_min=10.0,
 )
-base = fm.run_ebsd_pipeline(options, workdir=OUTPUT_DIR, force=True)
-print(f"Validated mesh and network: {base}")
+micro = fm.run_ebsd_pipeline(options, workdir=OUTPUT_DIR, force=True)
+print(f"Validated mesh and network: {micro.base}")

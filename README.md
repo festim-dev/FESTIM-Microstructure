@@ -22,7 +22,7 @@ import festim_microstructure as fm
 | EBSD import | Conversion of EBSD orientation maps into conforming grain meshes |
 | FESTIM subdomains and fields | Tagged grains, the codimension-one network, per-grain surface patches, lattice and boundary diffusivity fields, and the grain-to-network exchange terms |
 | Post-processing | Grain-plus-network inventories and flux averages, network topology checks |
-| Benchmarks | Diaz-Rodriguez baseline, dimensional and non-dimensionalised |
+| Examples | Voronoi and EBSD transport, homogenisation, and paper reproductions. [Runnable examples](examples/README.md) |
 
 The transport model itself is FESTIM's. Every grain is a
 `festim.VolumeSubdomain` with a `festim.Species` of its own, the grain-boundary
@@ -60,15 +60,15 @@ fm-check --ebsd
 
 The editable install makes the modules under `src/` available to examples and
 scripts. `--no-deps` preserves the dependency stack installed by the environment
-file. The active interpreter runs both the solver and EBSD mesher; set
-`FM_UPXO_PYTHON` to run the EBSD worker in a different interpreter.
+file. The active interpreter runs both the solver and EBSD mesher. Set
+`FM_EBSD_PYTHON` to run the EBSD worker in a different interpreter.
 
 CI creates this environment from scratch and runs the complete test suite;
 missing dependencies or skipped tests fail that job. To check EBSD mesh
 reconstruction, boundary exchange and inventory conservation locally, run:
 
 ```bash
-FM_REQUIRE_FULL_STACK=1 python -m pytest -q test/test_ebsd_si_mesh.py
+FM_REQUIRE_FULL_STACK=1 python -m pytest -q test/ebsd/test_pipeline.py
 ```
 
 The environment also includes test and lint tools. For VS Code, select the
@@ -129,13 +129,13 @@ FM_REQUIRE_FULL_STACK=1 python -m pytest -q
 This also upgrades an existing Python 3.12 `festim-microstructure` environment
 to the current Python 3.13 stack. If you previously used a differently named
 environment, create the standard environment using the installation commands
-above and select it in your editor. Clear any old `FM_UPXO_PYTHON` override
-with `unset FM_UPXO_PYTHON` to use the active interpreter.
+above and select it in your editor. Use `FM_EBSD_PYTHON` for a separate EBSD
+interpreter and clear the old override with `unset FM_UPXO_PYTHON`.
 
 Import and mesh cache identities probe the selected worker before reuse. They
 record its Python executable/version, all installed distribution versions,
 source provenance and installation-record fingerprints. Changing
-`FM_UPXO_PYTHON` or reinstalling dependencies invalidates the matching cache.
+`FM_EBSD_PYTHON` or reinstalling dependencies invalidates the matching cache.
 The probe also rejects incompatible UPXO/DefDAP before a cached result is used.
 Manual edits to installed dependency files or editable dependency source trees
 are not fingerprinted: use immutable dependency installations, or `force=True`
@@ -168,51 +168,22 @@ python -m pip check
 
 ```
 FESTIM-Microstructure/
-├── environment.yml             # Python 3.13 environment for all workflows
-├── pyproject.toml
-├── README.md
 ├── docs/
-│   └── gb_homogenisation.md    # the homogenisation study, with figures
+├── examples/
 ├── src/festim_microstructure/
-│   ├── __init__.py              # public API with ordinary imports
-│   ├── check.py                # fm-check environment diagnostic
-│   ├── microstructure.py       # microstructure protocols, TaggedPolycrystal
-│   ├── materials.py            # lattice diffusivity tensors and fields
-│   ├── msh4.py                  # generic tagged Gmsh mesh readers
-│   ├── ebsd/                    # CTF import, UPXO meshing, and EBSD topology
-│   │   ├── options.py
-│   │   ├── pipeline.py
-│   │   ├── topology.py
-│   │   ├── orientation.py
-│   │   ├── ctf.py
-│   │   ├── archive.py
-│   │   ├── provenance.py
-│   │   ├── grains.py
-│   │   ├── upxo.py
-│   │   ├── import_checks.py
-│   │   ├── mesh_checks.py
-│   │   └── plotting.py          # diagnostic raster colours and scale bars
-│   ├── voronoi/                 # generated 2D/3D tessellations and Gmsh meshes
-│   │   ├── geometry.py
-│   │   ├── gmsh_builder.py
-│   │   └── polycrystal.py
-│   ├── fem/
-│   │   ├── coupling.py         # exchange: grain <-> network flux/source pairs
-│   │   ├── solvers.py          # tune_direct_solver: the MUMPS workspace workaround
-│   │   └── subdomains.py       # Grain, GrainBoundaryNetwork, GrainSurface + factories
-│   └── exports/
-│       ├── measures.py         # submesh measures and network topology checks
-│       └── averages.py         # grain+network averages, inventory, fields, VTX output
-├── examples/                   # runnable workflows; not part of the library API
-│   ├── gb_homogenisation.py    # RVE identification, validation and figures
-│   ├── li2022_fig4*.py         # Li et al. (2022) reproduction scripts
-│   └── ...                     # usage examples and data/
-└── test/                       # pytest in the standard environment
+│   ├── microstructure.py       # shared contract and tagged-mesh adapter
+│   ├── materials.py            # lattice diffusivity fields
+│   ├── ebsd/                   # measured microstructures
+│   ├── voronoi/                # tessellation and meshing
+│   ├── fem/                    # FESTIM subdomains and grain-to-network coupling
+│   └── postprocessing/         # measures, averages, and VTX output
+├── test/
+└── tools/
 ```
 
-Nothing importable sits at the repository root. The package imports its public
-API directly and requires the FESTIM/DOLFINx stack. Run the examples, conversion
-tools, `fm-check`, and tests from the installed
+Find workflow guides, runnable cases, regression tests, and evaluation utilities
+in [docs/](docs/), [examples/](examples/), [test/](test/), and [tools/](tools/).
+Run the examples, tools, `fm-check`, and tests in the installed
 `festim-microstructure` environment.
 
 ## Usage
@@ -267,9 +238,9 @@ model = F.HydrogenTransportProblemDiscontinuous(
     settings=F.Settings(atol=1e-25, rtol=1e-10, transient=False),
 )
 model.initialise()
-fm.fem.tune_direct_solver(model)  # MUMPS workspace for many-subdomain problems
+fm.tune_direct_solver(model)  # MUMPS workspace for many-subdomain problems
 model.run()
-total = fm.exports.averages.inventory(grains, H.values(), network, H_gb, delta)
+total = fm.postprocessing.averages.inventory(grains, H.values(), network, H_gb, delta)
 ```
 
 Any FESTIM boundary condition goes on a patch the same way, with
@@ -300,7 +271,7 @@ model.reactions = [
 ```
 
 For a 3D Voronoi mesh, pass `dim=3` to `create`. Elongate grains with
-`aspect=3, aspect_axis=2` along z. `fm.TaggedPolycrystal` adapts other
+`aspect=3, aspect_axis=2` along z. `fm.TaggedMicrostructure` adapts other
 meshes with grain tags. The model uses metres for mesh coordinates and
 the grain-boundary width.
 
@@ -316,17 +287,17 @@ options = fm.EbsdOptions(
         crop=(0, 306, 0, 306),
     ),
 )
-base = fm.run_ebsd_pipeline(options, workdir="results", force=False)
-micro = fm.EbsdMicrostructure.load(base, theta_min=options.theta_min)
+micro = fm.run_ebsd_pipeline(options, workdir="results", force=False)
 y_top = micro.extent[1]
 ```
 
-Use this `micro` and `y_top` in the same transport setup. To load an
-already prepared mesh, pass its path stem directly to `load`. For tagged
-networks, `fm.grain_boundary_network(NETWORK_ID, micro, None,
-diffusivity_by_entity=values)` gives one diffusivity per boundary in tag
-order. See the [EBSD workflow guide](docs/ebsd_workflow.md) for mesh
-settings, saved files, and cache behavior.
+Use this `micro` and `y_top` in the same transport setup. The path stem of
+the saved files is `micro.base`. To open an earlier mesh, pass its path stem
+to `fm.EbsdMicrostructure.load()`. For tagged networks, pass
+`diffusivity_by_entity=values` to `fm.grain_boundary_network()` with `None`
+for the material. Supply one diffusivity per boundary in tag order.
+The EBSD workflow guide covers mesh settings, saved files, and cache behavior.
+[EBSD workflow guide](docs/ebsd_workflow.md)
 
 ### Examples
 

@@ -12,7 +12,7 @@ pytestmark = pytest.mark.fenics
 
 def test_all_3d_voronoi_cases_export_every_timestep(tmp_path, monkeypatch):
     """Both phases retain t=0 and every solved step for all three alignments."""
-    script = Path(__file__).resolve().parents[1] / "examples/voronoi_polycrystal_3d.py"
+    script = Path(__file__).resolve().parents[2] / "examples/voronoi_polycrystal_3d.py"
     spec = importlib.util.spec_from_file_location("voronoi_3d_exports", script)
     example = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(example)

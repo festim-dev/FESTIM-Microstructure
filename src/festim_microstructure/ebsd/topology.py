@@ -184,7 +184,7 @@ class EbsdMicrostructure:
         if crysym != "cubic":
             raise NotImplementedError(
                 "theta is computed with the closed-form cubic disorientation "
-                f"from orientation.py; crysym = {crysym!r} needs a general "
+                f"in EBSD; crysym = {crysym!r} needs a general "
                 "symmetry-operator search"
             )
         comm = mesh.comm

@@ -12,11 +12,11 @@ The public API uses ordinary imports and requires the FESTIM/DOLFINx stack.
 from . import (
     check,
     ebsd,
-    exports,
     fem,
     materials,
     microstructure,
     msh4,
+    postprocessing,
     voronoi,
 )
 from .ebsd import EbsdMicrostructure, EbsdOptions, UpxoMeshOptions, run_ebsd_pipeline
@@ -28,13 +28,14 @@ from .fem import (
     grain_boundary_network,
     grain_subdomains,
     grain_surfaces,
+    tune_direct_solver,
 )
 from .materials import crystal_diffusivity_field
 from .microstructure import (
     BoundaryTopology,
     MeshedMicrostructure,
     Microstructure,
-    TaggedPolycrystal,
+    TaggedMicrostructure,
 )
 from .voronoi import MeshSizing, VoronoiMicrostructure
 
@@ -53,7 +54,7 @@ __all__ = [
     "MeshSizing",
     "MeshedMicrostructure",
     "Microstructure",
-    "TaggedPolycrystal",
+    "TaggedMicrostructure",
     "UpxoMeshOptions",
     "VoronoiMicrostructure",
     "__version__",
@@ -61,7 +62,6 @@ __all__ = [
     "crystal_diffusivity_field",
     "ebsd",
     "exchange",
-    "exports",
     "fem",
     "grain_boundary_network",
     "grain_subdomains",
@@ -69,6 +69,8 @@ __all__ = [
     "materials",
     "microstructure",
     "msh4",
+    "postprocessing",
     "run_ebsd_pipeline",
+    "tune_direct_solver",
     "voronoi",
 ]

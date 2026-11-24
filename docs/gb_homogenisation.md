@@ -9,7 +9,7 @@ A workflow in three steps:
    problem is declared with FESTIM directly (`cell_problem()` in
    `examples/gb_homogenisation.py`); the package supplies the tagged subdomains
    (`src/festim_microstructure/fem/subdomains.py`), the lattice tensor field
-   (`materials.py`) and the averages (`exports/averages.py`).
+   (`materials.py`) and the averages (`postprocessing/averages.py`).
 3. **Identify an anisotropic `D_eff`** for a homogeneous model, and then check
    that it predicts things it was not fitted to (`examples/gb_homogenisation.py`).
 
@@ -215,7 +215,7 @@ Two traps, both from the problem being unscaled (`D ~ 1e-11 m2/s`, cell area
   grain makes a wide, badly scaled block system that MUMPS routinely
   under-estimates the fill-in of, and it stops with `INFOG(1) = -9` -- at some
   exchange rates and not others, on the same mesh.
-  `fm.fem.solvers.tune_direct_solver(model)` writes the option back between
+  `fm.tune_direct_solver(model)` writes the option back between
   `initialise()` and `run()`; it is the one piece of solver code the package
   keeps.
 

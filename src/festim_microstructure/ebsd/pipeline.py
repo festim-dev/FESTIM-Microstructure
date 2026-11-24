@@ -6,24 +6,26 @@ from pathlib import Path
 from mpi4py import MPI
 
 from .grains import convert
-from .mesh_checks import mesh_diagnostics, unit_name, write_network_png
-from .options import UpxoMeshOptions
+from .mesh_checks import mesh_diagnostics, write_network_png
+from .options import EbsdOptions
+from .plotting import unit_name
 from .topology import EbsdMicrostructure
-from .upxo import mesh_ebsd
+from .worker import mesh_grains
 
 __all__ = ["run_ebsd_pipeline"]
 
 
-def run_ebsd_pipeline(options, workdir: str | Path = "results", force=True):
+def run_ebsd_pipeline(
+    options: EbsdOptions, workdir: str | Path = "results", force=True
+) -> EbsdMicrostructure:
     """Import, mesh, check source geometry/orientations and load FESTIM tags.
 
     Accepted meshes carry their native EBSD archive and SI metadata. Grain and
     boundary tags are checked through the actual DOLFINx importer, and the
     reconstructed FESTIM network is reported alongside geometry diagnostics.
+    The returned microstructure's ``base`` is the path stem of the saved files.
     """
-    options.__post_init__()
-    if not isinstance(options.mesh, UpxoMeshOptions):
-        raise TypeError("EbsdOptions.mesh must be UpxoMeshOptions")
+    display_unit = unit_name(options.unit)
     # Only one rank imports/publishes files; all ranks load the accepted mesh.
     # Propagate preparation failures before entering collective mesh import.
     comm = MPI.COMM_WORLD
@@ -39,7 +41,7 @@ def run_ebsd_pipeline(options, workdir: str | Path = "results", force=True):
                 timeout=options.timeout,
                 check_images=options.check_images,
             )
-            base = mesh_ebsd(
+            base = mesh_grains(
                 imported.archive,
                 options.mesh,
                 workdir=workdir,
@@ -48,9 +50,7 @@ def run_ebsd_pipeline(options, workdir: str | Path = "results", force=True):
                 force=force,
                 timeout=options.timeout,
             )
-            mesh_diagnostics(
-                base, unit_name(options.unit), check_images=options.check_images
-            )
+            mesh_diagnostics(base, display_unit, check_images=options.check_images)
         except Exception as exc:
             failure = exc
     base, failure = comm.bcast((base, failure), root=0)
@@ -77,6 +77,6 @@ def run_ebsd_pipeline(options, workdir: str | Path = "results", force=True):
             micro,
             f"{base}-ebsd.npz",
             options.unit,
-            unit_name(options.unit),
+            display_unit,
         )
-    return base
+    return micro

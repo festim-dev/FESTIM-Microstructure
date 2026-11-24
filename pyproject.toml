@@ -81,6 +81,7 @@ section-order = [
 "mpi" = ["mpi4py", "petsc4py"]
 
 [tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
 testpaths = ["test"]
 markers = [
     "fenics: exercises dolfinx, festim and gmsh mesh/solver integration",

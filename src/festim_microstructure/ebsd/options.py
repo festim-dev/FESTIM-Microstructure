@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from dataclasses import fields as dataclass_fields
 from pathlib import Path
 
@@ -10,7 +10,6 @@ import numpy as np
 
 from .orientation import euler_bunge_to_quat
 from .provenance import read_provenance
-from .upxo import DEFAULT_WORKER_TIMEOUT, _validate_timeout
 
 __all__ = [
     "CUBIC_LAUE",
@@ -21,27 +20,32 @@ __all__ = [
 ]
 
 
+DEFAULT_WORKER_TIMEOUT = 600.0
+
+
+def _validate_timeout(timeout):
+    if not np.isfinite(timeout) or timeout <= 0:
+        raise ValueError("worker timeout must be finite and positive")
+
+
 def settings_from_provenance(path):
     """Rebuild the `Settings` of a conversion from its provenance json."""
     rec = read_provenance(path)
     known = {f.name for f in dataclass_fields(Settings)}
-    settings = {k: v for k, v in rec.items() if k in known}
-    if isinstance(settings.get("crop"), list):
-        settings["crop"] = tuple(settings["crop"])
-    return Settings(**settings)
+    return Settings(**{k: v for k, v in rec.items() if k in known})
 
 
 #: Laue 11 (m-3m) only: Laue 10 (m-3) has 12 proper rotations, not 24.
 CUBIC_LAUE = (11,)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Settings:
     """Configuration for :func:`convert`, including saved provenance."""
 
     ctf: str
     #: Crop before segmentation with (xmin, xmax, ymin, ymax) in source units.
-    crop: tuple[float, float, float, float] | None = None
+    crop: tuple[float, float, float, float] | list[float] | None = None
     phase: int = 1  #: phase to keep
     threshold: float = 10.0  #: grain boundary misorientation, degrees
     max_mad: float = 1.0  #: MAD cutoff
@@ -53,19 +57,21 @@ class Settings:
     #: Proper frame change: mirror rows and rotate orientations 180 deg about x.
     flip_y: bool = False
     #: Rotation taking the Euler frame onto the map frame (Bunge degrees).
-    euler_correction: tuple[float, float, float] | None = None
+    euler_correction: tuple[float, float, float] | list[float] | np.ndarray | None = (
+        None
+    )
     #: Assign unindexed/pruned pixels to the nearest surviving grain for geometry.
     #: Original membership is retained and these pixels do not affect grain means.
     fill: bool = True
 
     def __post_init__(self):
         if self.crop is not None:
-            if not isinstance(self.crop, tuple) or len(self.crop) != 4:
-                raise ValueError("crop must be a tuple of (xmin, xmax, ymin, ymax)")
-            xmin, xmax, ymin, ymax = map(float, self.crop)
-            self.crop = (xmin, xmax, ymin, ymax)
-            if not np.isfinite(self.crop).all():
+            crop = np.asarray(self.crop, dtype=float)
+            if crop.shape != (4,):
+                raise ValueError("crop must contain (xmin, xmax, ymin, ymax)")
+            if not np.isfinite(crop).all():
                 raise ValueError("crop bounds must be finite")
+            object.__setattr__(self, "crop", tuple(crop.tolist()))
         if not isinstance(self.phase, int) or self.phase < 1:
             raise ValueError("phase must be a positive integer")
         if not isinstance(self.min_pixels, int) or self.min_pixels < 1:
@@ -76,19 +82,20 @@ class Settings:
             raise ValueError("quality cutoffs must be finite and nonnegative")
         if not np.isfinite(self.scale) or self.scale <= 0:
             raise ValueError("scale must be finite and positive")
-        self.euler_correction_quat
+        if self.euler_correction is not None:
+            angles = np.asarray(self.euler_correction, dtype=float)
+            if angles.shape != (3,) or not np.isfinite(angles).all():
+                raise ValueError(
+                    "euler_correction must be three finite Bunge angles in degrees"
+                )
+            object.__setattr__(self, "euler_correction", tuple(angles.tolist()))
 
     @property
     def euler_correction_quat(self):
         """``euler_correction`` as a unit quaternion, or ``None``."""
         if self.euler_correction is None:
             return None
-        angles = np.asarray(self.euler_correction, dtype=float)
-        if angles.shape != (3,) or not np.isfinite(angles).all():
-            raise ValueError(
-                "euler_correction must be three finite Bunge angles in degrees"
-            )
-        return euler_bunge_to_quat(*angles)
+        return euler_bunge_to_quat(*self.euler_correction)
 
     @property
     def unit(self):
@@ -96,7 +103,7 @@ class Settings:
         return "um" if np.isclose(self.scale, 1.0) else f"x{self.scale:g} um"
 
 
-@dataclass
+@dataclass(frozen=True)
 class UpxoMeshOptions:
     """UPXO mesh sizes and controlled smoothing, measured in pixel coordinates.
 
@@ -141,22 +148,26 @@ class UpxoMeshOptions:
             )
 
 
-@dataclass
+@dataclass(frozen=True)
 class EbsdOptions:
     """Full CTF → UPXO/DefDAP grains → UPXO mesh → FESTIM checks."""
 
     import_settings: Settings
     unit: float = 1e-6
     theta_min: float = 10.0
-    mesh: UpxoMeshOptions | None = None
+    mesh: UpxoMeshOptions | None = field(default_factory=UpxoMeshOptions)
     stem: str = "poly"
     check_images: bool = True
     timeout: float = DEFAULT_WORKER_TIMEOUT
 
     def __post_init__(self):
-        _validate_timeout(self.timeout)
+        if not isinstance(self.import_settings, Settings):
+            raise TypeError("EbsdOptions.import_settings must be Settings")
         if self.mesh is None:
-            self.mesh = UpxoMeshOptions()
+            object.__setattr__(self, "mesh", UpxoMeshOptions())
+        elif not isinstance(self.mesh, UpxoMeshOptions):
+            raise TypeError("EbsdOptions.mesh must be UpxoMeshOptions")
+        _validate_timeout(self.timeout)
         if not np.isfinite(self.unit) or self.unit <= 0:
             raise ValueError("unit must be finite and positive")
         if not np.isfinite(self.theta_min) or not 0 <= self.theta_min < 63:

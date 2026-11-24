@@ -1,112 +1,26 @@
-"""Validated UPXO EBSD meshing, isolated from the FESTIM interpreter.
-
-The worker is executable as a file under Python 3.13 without installing FESTIM.
-Only NumPy is imported until geometry reconstruction or meshing is requested.
-"""
+"""Direct subprocess entry point for UPXO EBSD import and meshing."""
 
 from __future__ import annotations
 
 import hashlib
 import importlib
 import importlib.metadata
-import importlib.util
 import json
-import os
-import shutil
-import subprocess
 import sys
-import tempfile
 from collections import defaultdict
-from dataclasses import asdict
 from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
 
-__all__ = [
-    "import_ebsd",
-    "mesh_ebsd",
-    "probe_worker",
-    "resolve_python",
-]
 UPXO_VERSION = "1.5.0"
 DEFDAP_VERSION = "0.93.6"
 UPXO_REVISION = "d5d99f43ee59f4a5cb8bb29ac8cd1696682d919c"
 _PROTOCOL = 4
-DEFAULT_WORKER_TIMEOUT = 600.0
-
-
-def _validate_timeout(timeout):
-    if not np.isfinite(timeout) or timeout <= 0:
-        raise ValueError("worker timeout must be finite and positive")
-
-
-def resolve_python(required=True):
-    """Choose the UPXO interpreter: ``FM_UPXO_PYTHON`` if set, else this one.
-
-    The active interpreter qualifies when it is Python 3.13 or newer with UPXO
-    installed, as in the standard environment. A configured interpreter that
-    cannot be found is an error, not a fallback.
-    """
-    configured = os.environ.get("FM_UPXO_PYTHON")
-    if configured:
-        executable = shutil.which(configured)
-        if executable:
-            return executable
-    elif sys.version_info >= (3, 13) and importlib.util.find_spec("upxo"):
-        return sys.executable
-    if required:
-        raise FileNotFoundError(
-            "UPXO Python interpreter not found. Create and activate "
-            "environment.yml, or set FM_UPXO_PYTHON "
-            "to an interpreter with UPXO installed."
-        )
-    return None
 
 
 def _save_json(path, value):
     path.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
-
-
-def probe_worker(*, health=False, timeout=30.0):
-    """Observe the selected worker before cache reuse, or check its EBSD APIs.
-
-    Run in isolation just like the importer/mesher. No probe is cached, so an
-    environment replacement at the same interpreter path invalidates results.
-    """
-    try:
-        executable = resolve_python()
-    except FileNotFoundError as exc:
-        raise RuntimeError(f"UPXO environment probe failed: {exc}") from exc
-    with tempfile.TemporaryDirectory(prefix="upxo-probe-") as scratch:
-        output = Path(scratch) / "environment.json"
-        try:
-            result = subprocess.run(
-                [
-                    executable,
-                    "-I",
-                    str(Path(__file__).resolve()),
-                    "--health" if health else "--environment",
-                    str(output),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=True,
-            )
-        except (
-            OSError,
-            subprocess.CalledProcessError,
-            subprocess.TimeoutExpired,
-        ) as exc:
-            detail = getattr(exc, "stderr", None) or str(exc)
-            raise RuntimeError(f"UPXO environment probe failed: {detail}") from exc
-        try:
-            return json.loads(output.read_text())
-        except (OSError, ValueError) as exc:
-            raise RuntimeError(
-                f"UPXO environment probe returned no valid report: {result.stdout}"
-            ) from exc
 
 
 def _environment_report(*, health=False):
@@ -162,115 +76,6 @@ def _environment_report(*, health=False):
                 getattr(imported, attribute)
         report["health"] = "ok"
     return report
-
-
-def mesh_ebsd(
-    archive,
-    options=None,
-    *,
-    workdir="results",
-    stem="poly",
-    unit=1e-6,
-    force=True,
-    timeout=DEFAULT_WORKER_TIMEOUT,
-):
-    """Mesh a native EBSD archive and write tagged SI and diagnostic outputs.
-
-    Cache reuse requires matching input bytes, options, units, interpreter and
-    observed installed distributions and worker code, plus output checksums.
-    Failed runs leave previously
-    accepted outputs intact and keep a log and validation report for diagnosis.
-    """
-    from .archive import read_ebsd
-    from .options import UpxoMeshOptions
-
-    _validate_timeout(timeout)
-
-    options = options or UpxoMeshOptions()
-    options.__post_init__()
-    if not np.isfinite(unit) or unit <= 0:
-        raise ValueError("unit must be finite and positive")
-    if not stem or Path(stem).name != stem or stem in (".", ".."):
-        raise ValueError("stem must be a filename without directory components")
-    archive = Path(archive).resolve()
-    data = read_ebsd(archive)
-    labels, vox = data.labels, np.asarray(data.vox)
-    executable = resolve_python()
-    base = Path(workdir).resolve() / stem
-    base.parent.mkdir(parents=True, exist_ok=True)
-    settings = asdict(options)
-    identity = {
-        "protocol": _PROTOCOL,
-        "upxo_revision": UPXO_REVISION,
-        "worker_environment": probe_worker(timeout=timeout),
-        "worker_sha256": hashlib.sha256(
-            Path(__file__).read_bytes()
-            + Path(__file__).with_name("options.py").read_bytes()
-        ).hexdigest(),
-        "input_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
-        "options": settings,
-        "unit": unit,
-    }
-    manifest = Path(f"{base}-upxo.json")
-    if not force and manifest.is_file():
-        try:
-            saved = json.loads(manifest.read_text())
-            outputs = saved["outputs"]
-            if (
-                saved["identity"] == identity
-                and outputs
-                and all(
-                    (base.parent / name).is_file()
-                    and hashlib.sha256((base.parent / name).read_bytes()).hexdigest()
-                    == digest
-                    for name, digest in outputs.items()
-                )
-            ):
-                return base
-        except (ValueError, KeyError, OSError):
-            pass
-    with tempfile.TemporaryDirectory(
-        prefix=f".{stem}-upxo-", dir=base.parent
-    ) as scratch:
-        stage = Path(scratch)
-        np.savez(stage / "input.npz", labels=labels.astype(np.int32), vox=vox)
-        request = stage / "request.json"
-        _save_json(request, {"options": settings, "unit": unit, "stem": stem})
-        log = Path(f"{base}-upxo.log")
-        with log.open("w") as stream:
-            try:
-                subprocess.run(
-                    [
-                        executable,
-                        "-I",
-                        str(Path(__file__).resolve()),
-                        "--worker",
-                        str(request),
-                    ],
-                    stdout=stream,
-                    stderr=subprocess.STDOUT,
-                    timeout=timeout,
-                    check=True,
-                )
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-                failed = stage / f"{stem}-validation.json"
-                reason = "worker exited before validation"
-                if failed.is_file():
-                    shutil.copyfile(failed, f"{base}-failed-validation.json")
-                    reason = json.loads(failed.read_text()).get("error", reason)
-                if isinstance(exc, subprocess.TimeoutExpired):
-                    reason = f"exceeded {timeout:g} seconds"
-                raise RuntimeError(f"UPXO meshing failed: {reason}; see {log}") from exc
-        shutil.copyfile(archive, stage / f"{stem}-ebsd.npz")
-        outputs = {
-            p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in stage.iterdir()
-            if p.name.startswith(stem) and p.is_file()
-        }
-        for name in outputs:
-            (stage / name).replace(base.parent / name)
-        _save_json(manifest, {"identity": identity, "outputs": outputs})
-    return base
 
 
 def raster_polygons(labels):
@@ -761,115 +566,6 @@ def _worker(request):
         _save_json(validation, report)
 
 
-def import_ebsd(
-    ctf,
-    window,
-    indexed,
-    settings,
-    log=print,
-    *,
-    timeout=DEFAULT_WORKER_TIMEOUT,
-):
-    """Canonicalize the cropped, filtered CTF and invoke UPXO's EBSDReader.
-
-    DefDAP's text loader reshapes file rows and uses a scalar XStep. Reorder
-    by coordinates here, supply absent optional quality columns, and retain
-    both pixel spacings in the native archive. Phase/quality rejections become
-    phase zero before detection, so they cannot bridge surviving grains.
-    """
-    _validate_timeout(timeout)
-    executable = resolve_python()
-    with tempfile.TemporaryDirectory(prefix="upxo-import-") as scratch:
-        stage = Path(scratch)
-        ny, nx = indexed.shape
-        full_ny, full_nx = ctf.shape
-        ix = np.rint(ctf["X"] / ctf.header["XStep"]).astype(int)
-        iy = np.rint(ctf["Y"] / ctf.header["YStep"]).astype(int)
-        inside = (ix >= 0) & (ix < full_nx) & (iy >= 0) & (iy < full_ny)
-        columns = [
-            "Phase",
-            "X",
-            "Y",
-            "Bands",
-            "Error",
-            "Euler1",
-            "Euler2",
-            "Euler3",
-            "MAD",
-            "BC",
-            "BS",
-        ]
-        arrays = {}
-        for name in columns:
-            array = np.zeros(ctf.shape)
-            if ctf.has(name):
-                array[iy[inside], ix[inside]] = ctf[name][inside]
-            arrays[name] = array[window].copy()
-        arrays["Phase"] = indexed.astype(int)
-        # Invalid, rejected orientations do not participate in detection or
-        # diagnostics; retain finite rejected measurements for error panels.
-        for name in ("Euler1", "Euler2", "Euler3"):
-            arrays[name][~np.isfinite(arrays[name])] = 0
-        yy, xx = np.indices((ny, nx))
-        arrays["X"], arrays["Y"] = xx * ctf.header["XStep"], yy * ctf.header["YStep"]
-        lines = ctf.path.read_text().splitlines()
-        phase_row = next(
-            i for i, line in enumerate(lines) if line.split("\t")[0] == "Phases"
-        )
-        phase_line = lines[phase_row + settings.phase]
-        canonical = stage / "filtered.ctf"
-        with canonical.open("w") as stream:
-            stream.write(
-                f"Channel Text File\nXCells\t{nx}\nYCells\t{ny}\n"
-                f"XStep\t{ctf.header['XStep']}\nYStep\t{ctf.header['YStep']}\n"
-                f"Phases\t1\n{phase_line}\n"
-            )
-            stream.write("\t".join(columns) + "\n")
-            np.savetxt(
-                stream,
-                np.column_stack([arrays[col].ravel() for col in columns]),
-                fmt="%.12g",
-                delimiter="\t",
-            )
-        request = stage / "request.json"
-        _save_json(
-            request,
-            {"min_pixels": settings.min_pixels, "threshold": settings.threshold},
-        )
-        logfile = stage / "import.log"
-        with logfile.open("w") as stream:
-            try:
-                subprocess.run(
-                    [
-                        executable,
-                        "-I",
-                        str(Path(__file__).resolve()),
-                        "--import",
-                        str(request),
-                    ],
-                    check=True,
-                    stdout=stream,
-                    stderr=subprocess.STDOUT,
-                    timeout=timeout,
-                )
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-                raise RuntimeError(
-                    f"UPXO/DefDAP import failed: {logfile.read_text()[-6000:]}"
-                ) from exc
-        with np.load(stage / "import.npz", allow_pickle=False) as imported:
-            result = {
-                key: imported[key]
-                for key in ("source_labels", "pixel_quats", "grain_quats")
-            }
-        result["packages"] = json.loads((stage / "packages.json").read_text())
-        if log:
-            log(
-                f"  importer: UPXO {result['packages']['upxo']}, "
-                f"DefDAP {result['packages']['defdap']}"
-            )
-        return result
-
-
 def _sign_aligned_quaternion_mean(equivalents):
     """Average DefDAP symmetry equivalents with antipodal sign alignment.
 
@@ -941,5 +637,8 @@ if __name__ == "__main__":
         ),
     }
     if len(sys.argv) != 3 or sys.argv[1] not in modes:
-        raise SystemExit("usage: upxo.py --worker/--import/--environment/--health PATH")
+        script = Path(__file__).name
+        raise SystemExit(
+            f"usage: {script} --worker/--import/--environment/--health PATH"
+        )
     modes[sys.argv[1]](sys.argv[2])

@@ -14,7 +14,7 @@ pytestmark = pytest.mark.fenics
 @pytest.fixture
 def study(monkeypatch, tmp_path):
     """Load the example study with an isolated output directory."""
-    path = Path(__file__).parents[1] / "examples" / "gb_homogenisation.py"
+    path = Path(__file__).parents[2] / "examples" / "gb_homogenisation.py"
     spec = importlib.util.spec_from_file_location("gb_study", path)
     module = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, spec.name, module)

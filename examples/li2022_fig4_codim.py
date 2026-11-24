@@ -164,7 +164,7 @@ def cell_problem(micro, D_gb, bcs):
         settings=F.Settings(atol=1e-25, rtol=1e-10, transient=False),
     )
     model.initialise()
-    fm.fem.tune_direct_solver(model)
+    fm.tune_direct_solver(model)
     return CellProblem(
         model, grains, grain_species, network, c_gb, tensors, D_gb, width, k
     )
@@ -173,7 +173,7 @@ def cell_problem(micro, D_gb, bcs):
 def area_density(cp, micro):
     """The network area per unit volume ``S_v`` of the meshed network."""
     dim = micro.mesh.geometry.dim
-    return fm.exports.measures.submesh_measure(cp.network) / B**dim
+    return fm.postprocessing.measures.submesh_measure(cp.network) / B**dim
 
 
 def run(cp, axis, S_v, ratio, f_gb) -> dict[str, float | str]:
@@ -182,7 +182,7 @@ def run(cp, axis, S_v, ratio, f_gb) -> dict[str, float | str]:
     k = 2.0 * cp.D_gb / delta
     cp.solve(delta, k)
     # their Eq. 21: volume-averaged flux
-    q, _, _ = fm.exports.averages.averages(
+    q, _, _ = fm.postprocessing.averages.averages(
         cp.grains,
         cp.grain_species,
         cp.tensors,
