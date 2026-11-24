@@ -12,6 +12,34 @@ from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
 from festim_microstructure.ebsd.orientation import euler_bunge_to_quat
 
 
+def pixel_triangles(labels):
+    """A conforming triangular mesh of a labelled pixel map."""
+    nx = labels.shape[1]
+    triangles, owners = [], []
+    for (row, col), grain in np.ndenumerate(labels):
+        if grain == 0:
+            continue
+        a = row * (nx + 1) + col
+        b, c, d = a + 1, a + nx + 1, a + nx + 2
+        triangles.extend([(a, b, d), (a, d, c)])
+        owners.extend([grain, grain])
+    return np.asarray(triangles), np.asarray(owners)
+
+
+def closed_loop_labels(case):
+    """A host grain with closed interior boundaries."""
+    labels = np.ones((24, 24), dtype=np.int32)
+    if case == "disconnected":
+        labels[4:8, 4:8] = labels[15:19, 15:19] = 2
+    elif case == "void":
+        labels[8:16, 8:16] = 0
+    else:
+        labels[8:16, 8:16] = 2
+        if case == "nested_islands":
+            labels[9:15, 9:15] = 3
+    return labels
+
+
 def test_configured_interpreter_does_not_fall_back(monkeypatch):
     monkeypatch.setenv("FM_UPXO_PYTHON", "/does/not/exist/python")
     assert upxo.resolve_python(required=False) is None
@@ -102,6 +130,29 @@ def test_geometry_gate_rejects_lost_grain_contact():
     assert report["gap_fraction"] > 0
 
 
+def test_geometry_gate_rejects_filled_parent_hole():
+    shapely = pytest.importorskip("shapely")
+    pytest.importorskip("rasterio")
+    original = upxo.raster_polygons(closed_loop_labels("island"))
+    assert upxo.geometry_metrics(original, original)["accepted"]
+    altered = dict(original)
+    altered[1] = shapely.Polygon(original[1].exterior)
+    report = upxo.geometry_metrics(original, altered)
+    assert not report["accepted"]
+    assert report["overlap_fraction"] > 0
+    assert report["reference_topology"]["1"]["holes"] == 1
+    assert report["actual_topology"]["1"]["holes"] == 0
+
+
+def test_pixel_seeds_sample_their_own_pixel_including_first_row_and_column():
+    from scipy.ndimage import map_coordinates
+
+    labels = np.arange(35, dtype=np.int32).reshape(5, 7)
+    seeds = upxo.pixel_seeds(labels.shape)
+    sampled = map_coordinates(labels, seeds[:, ::-1].T, order=0, mode="nearest")
+    np.testing.assert_array_equal(sampled, labels.ravel())
+
+
 @pytest.mark.parametrize("smoothing", ["none", "taubin"])
 def test_real_worker_retains_island_and_ownership(tmp_path, smoothing):
     if upxo.resolve_python(required=False) is None:
@@ -137,6 +188,42 @@ def test_real_worker_retains_island_and_ownership(tmp_path, smoothing):
 
 
 @pytest.mark.parametrize(
+    ("case", "expected_pairs"),
+    [
+        ("island", [(1, 0), (1, 2)]),
+        ("nested_islands", [(1, 0), (1, 2), (2, 3)]),
+        ("disconnected", [(1, 0), (1, 2), (1, 2)]),
+        ("void", [(1, 0), (1, 0)]),
+    ],
+)
+def test_boundary_arcs_keep_disconnected_closed_loops(case, expected_pairs):
+    triangles, owners = pixel_triangles(closed_loop_labels(case))
+    arcs, nonmanifold = upxo.boundary_arcs(triangles, owners)
+    assert nonmanifold == 0
+    assert sorted(pair for pair, _edges in arcs) == sorted(expected_pairs)
+    for _pair, edges in arcs:
+        nodes, counts = np.unique(np.asarray(edges), return_counts=True)
+        assert len(nodes) > 0
+        np.testing.assert_array_equal(counts, 2)
+
+
+def test_boundary_arcs_split_at_triple_junction():
+    labels = np.ones((24, 24), dtype=np.int32)
+    labels[:12, 12:] = 2
+    labels[12:] = 3
+    triangles, owners = pixel_triangles(labels)
+    arcs, nonmanifold = upxo.boundary_arcs(triangles, owners)
+    interior = [(pair, edges) for pair, edges in arcs if 0 not in pair]
+    assert nonmanifold == 0
+    assert sorted(pair for pair, _edges in interior) == [(1, 2), (1, 3), (2, 3)]
+    endpoints = []
+    for _pair, edges in interior:
+        nodes, counts = np.unique(np.asarray(edges), return_counts=True)
+        endpoints.append(set(nodes[counts == 1]))
+    assert len(set.intersection(*endpoints)) == 1
+
+
+@pytest.mark.parametrize(
     "case,expected",
     [
         ("island", {"1": {"parts": 1, "holes": 1}, "2": {"parts": 1, "holes": 0}}),
@@ -148,14 +235,7 @@ def test_real_worker_retains_island_and_ownership(tmp_path, smoothing):
     ],
 )
 def test_triangle_topology_counts_islands_voids_and_disconnected_parts(case, expected):
-    from test_upxo_evaluation import pixel_triangles
-
-    labels = np.ones((24, 24), dtype=np.int32)
-    if case == "disconnected":
-        labels[5:9, 5:9] = labels[15:19, 15:19] = 2
-    else:
-        labels[8:16, 8:16] = 0 if case == "void" else 2
-    triangles, owners = pixel_triangles(labels)
+    triangles, owners = pixel_triangles(closed_loop_labels(case))
     assert upxo.mesh_topology(triangles, owners) == expected
 
 
