@@ -9,7 +9,7 @@ from .grains import convert
 from .mesh_checks import mesh_diagnostics, unit_name, write_network_png
 from .options import UpxoMeshOptions
 from .topology import EbsdMicrostructure
-from .upxo import mesh_ebsd, resolve_python
+from .upxo import mesh_ebsd
 
 __all__ = ["run_ebsd_pipeline"]
 
@@ -32,12 +32,10 @@ def run_ebsd_pipeline(options, workdir: str | Path = "results", force=True):
         try:
             workdir = Path(workdir)
             workdir.mkdir(parents=True, exist_ok=True)
-            executable = resolve_python(options.python)
             imported = convert(
                 settings=options.import_settings,
                 output=workdir / f"{options.stem}-import.npz",
                 force=force,
-                python=executable,
                 timeout=options.timeout,
                 check_images=options.check_images,
             )
@@ -48,7 +46,6 @@ def run_ebsd_pipeline(options, workdir: str | Path = "results", force=True):
                 stem=options.stem,
                 unit=options.unit,
                 force=force,
-                python=executable,
                 timeout=options.timeout,
             )
             mesh_diagnostics(

@@ -21,8 +21,7 @@ def test_ebsd_health_status(monkeypatch, capsys, available, failed, required, st
         check, "resolve_python", lambda **kw: "/worker/python" if available else None
     )
 
-    def probe(executable, **kwargs):
-        assert executable == "/worker/python"
+    def probe(**kwargs):
         assert kwargs["health"]
         if failed:
             raise RuntimeError("UPXO requires evaluated UPXO 1.3.1")

@@ -60,7 +60,8 @@ fm-check --ebsd
 
 The editable install makes the modules under `src/` available to examples and
 scripts. `--no-deps` preserves the dependency stack installed by the environment
-file. The active interpreter runs both the solver and EBSD mesher.
+file. The active interpreter runs both the solver and EBSD mesher; set
+`FM_UPXO_PYTHON` to run the EBSD worker in a different interpreter.
 
 CI creates this environment from scratch and runs the complete test suite;
 missing dependencies or skipped tests fail that job. To check EBSD mesh

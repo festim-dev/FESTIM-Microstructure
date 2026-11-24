@@ -41,27 +41,20 @@ def _validate_timeout(timeout):
         raise ValueError("worker timeout must be finite and positive")
 
 
-def resolve_python(explicit=None, required=True):
-    """Choose the UPXO interpreter: explicit path, FM_UPXO_PYTHON, then local.
+def resolve_python(required=True):
+    """Choose the UPXO interpreter: ``FM_UPXO_PYTHON`` if set, else this one.
 
-    The named conda environment beside the current one is also discovered.
-    An explicitly configured missing interpreter is an error, not a fallback.
+    The active interpreter qualifies when it is Python 3.13 or newer with UPXO
+    installed, as in the standard environment. A configured interpreter that
+    cannot be found is an error, not a fallback.
     """
-    configured = explicit or os.environ.get("FM_UPXO_PYTHON")
+    configured = os.environ.get("FM_UPXO_PYTHON")
     if configured:
-        executable = shutil.which(str(configured))
+        executable = shutil.which(configured)
         if executable:
             return executable
-    else:
-        if sys.version_info >= (3, 13) and importlib.util.find_spec("upxo"):
-            return sys.executable
-        sibling = Path(sys.prefix).parent / "festim-microstructure" / "bin" / "python"
-        if (
-            sibling.is_file()
-            and sibling.resolve() != Path(sys.executable).resolve()
-            and os.access(sibling, os.X_OK)
-        ):
-            return str(sibling)
+    elif sys.version_info >= (3, 13) and importlib.util.find_spec("upxo"):
+        return sys.executable
     if required:
         raise FileNotFoundError(
             "UPXO Python interpreter not found. Create and activate "
@@ -75,14 +68,14 @@ def _save_json(path, value):
     path.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
 
 
-def probe_worker(executable=None, *, health=False, timeout=30.0):
+def probe_worker(*, health=False, timeout=30.0):
     """Observe the selected worker before cache reuse, or check its EBSD APIs.
 
     Run in isolation just like the importer/mesher. No probe is cached, so an
     environment replacement at the same interpreter path invalidates results.
     """
     try:
-        executable = resolve_python(executable)
+        executable = resolve_python()
     except FileNotFoundError as exc:
         raise RuntimeError(f"UPXO environment probe failed: {exc}") from exc
     with tempfile.TemporaryDirectory(prefix="upxo-probe-") as scratch:
@@ -179,7 +172,6 @@ def mesh_ebsd(
     stem="poly",
     unit=1e-6,
     force=True,
-    python=None,
     timeout=DEFAULT_WORKER_TIMEOUT,
 ):
     """Mesh a native EBSD archive and write tagged SI and diagnostic outputs.
@@ -203,14 +195,14 @@ def mesh_ebsd(
     archive = Path(archive).resolve()
     data = read_ebsd(archive)
     labels, vox = data.labels, np.asarray(data.vox)
-    executable = resolve_python(python)
+    executable = resolve_python()
     base = Path(workdir).resolve() / stem
     base.parent.mkdir(parents=True, exist_ok=True)
     settings = asdict(options)
     identity = {
         "protocol": _PROTOCOL,
         "upxo_revision": UPXO_REVISION,
-        "worker_environment": probe_worker(executable, timeout=timeout),
+        "worker_environment": probe_worker(timeout=timeout),
         "worker_sha256": hashlib.sha256(
             Path(__file__).read_bytes()
             + Path(__file__).with_name("options.py").read_bytes()
@@ -776,7 +768,6 @@ def import_ebsd(
     settings,
     log=print,
     *,
-    python=None,
     timeout=DEFAULT_WORKER_TIMEOUT,
 ):
     """Canonicalize the cropped, filtered CTF and invoke UPXO's EBSDReader.
@@ -787,7 +778,7 @@ def import_ebsd(
     phase zero before detection, so they cannot bridge surviving grains.
     """
     _validate_timeout(timeout)
-    executable = resolve_python(python)
+    executable = resolve_python()
     with tempfile.TemporaryDirectory(prefix="upxo-import-") as scratch:
         stage = Path(scratch)
         ny, nx = indexed.shape
