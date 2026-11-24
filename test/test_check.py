@@ -3,6 +3,7 @@
 import pytest
 
 from festim_microstructure import check
+from festim_microstructure.ebsd.upxo import DEFDAP_VERSION, UPXO_VERSION
 
 
 @pytest.mark.parametrize(
@@ -21,12 +22,11 @@ def test_ebsd_health_status(monkeypatch, capsys, available, failed, required, st
         check, "resolve_python", lambda **kw: "/worker/python" if available else None
     )
 
-    def probe(executable, **kwargs):
-        assert executable == "/worker/python"
+    def probe(**kwargs):
         assert kwargs["health"]
         if failed:
-            raise RuntimeError("UPXO requires evaluated UPXO 1.3.1")
-        return {"packages": {"upxo": "1.3.1", "defdap": "0.93.6"}}
+            raise RuntimeError(f"This backend requires evaluated UPXO {UPXO_VERSION}")
+        return {"packages": {"upxo": UPXO_VERSION, "defdap": DEFDAP_VERSION}}
 
     monkeypatch.setattr(check, "probe_worker", probe)
     assert check.main(["--ebsd"] if required else []) == status

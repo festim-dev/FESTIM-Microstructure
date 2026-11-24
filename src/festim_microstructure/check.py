@@ -45,7 +45,7 @@ def main(argv=None):
     print(f"  EBSD interpreter       {upxo_python or 'not configured'}")
     if upxo_python is not None:
         try:
-            report = probe_worker(upxo_python, health=True)
+            report = probe_worker(health=True)
             print("  EBSD worker            OK (runtime imports verified)")
             for name, version in report["packages"].items():
                 print(f"    {name:20s} {version}")

@@ -115,14 +115,12 @@ class CtfConversion:
         settings,
         log=print,
         *,
-        python=None,
         timeout=upxo.DEFAULT_WORKER_TIMEOUT,
         check_images=False,
     ):
         upxo._validate_timeout(timeout)
         self.settings = settings
         self.log = log or (lambda *args: None)
-        self.python = python
         self.timeout = timeout
         self.check_images = check_images
 
@@ -174,7 +172,6 @@ class CtfConversion:
             self.ok,
             opt,
             log=self.log,
-            python=self.python,
             timeout=self.timeout,
         )
         source = imported["source_labels"]
@@ -288,9 +285,7 @@ class CtfConversion:
                         Path(self.settings.ctf).read_bytes()
                     ).hexdigest(),
                     upxo_revision=upxo.UPXO_REVISION,
-                    worker_environment=upxo.probe_worker(
-                        self.python, timeout=self.timeout
-                    ),
+                    worker_environment=upxo.probe_worker(timeout=self.timeout),
                     code_sha256=hashlib.sha256(
                         Path(__file__).read_bytes()
                         + Path(upxo.__file__).read_bytes()
@@ -388,7 +383,6 @@ def convert(
     settings=None,
     log=print,
     force=True,
-    python=None,
     timeout=upxo.DEFAULT_WORKER_TIMEOUT,
     check_images=False,
     **kwargs,
@@ -406,7 +400,6 @@ def convert(
     return CtfConversion(
         settings or Settings(ctf=str(ctf_path), **kwargs),
         log,
-        python=python,
         timeout=timeout,
         check_images=check_images,
     ).run(output, force=force)

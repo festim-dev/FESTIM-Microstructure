@@ -2,9 +2,7 @@
 
 `fm.run_ebsd_pipeline` imports a CTF map through UPXO/DefDAP, meshes the
 grains with UPXO, and checks the mesh and its tags in DOLFINx. Start with
-the [EBSD quick start](../README.md#measured-ebsd-meshes). The
-[UPXO evaluation](upxo_evaluation.md) describes the backend and validation
-results.
+the [EBSD quick start](../README.md#measured-ebsd-meshes).
 
 ## Import settings
 

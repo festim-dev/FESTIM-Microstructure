@@ -12,6 +12,34 @@ from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
 from festim_microstructure.ebsd.orientation import euler_bunge_to_quat
 
 
+def pixel_triangles(labels):
+    """A conforming triangular mesh of a labelled pixel map."""
+    nx = labels.shape[1]
+    triangles, owners = [], []
+    for (row, col), grain in np.ndenumerate(labels):
+        if grain == 0:
+            continue
+        a = row * (nx + 1) + col
+        b, c, d = a + 1, a + nx + 1, a + nx + 2
+        triangles.extend([(a, b, d), (a, d, c)])
+        owners.extend([grain, grain])
+    return np.asarray(triangles), np.asarray(owners)
+
+
+def closed_loop_labels(case):
+    """A host grain with closed interior boundaries."""
+    labels = np.ones((24, 24), dtype=np.int32)
+    if case == "disconnected":
+        labels[4:8, 4:8] = labels[15:19, 15:19] = 2
+    elif case == "void":
+        labels[8:16, 8:16] = 0
+    else:
+        labels[8:16, 8:16] = 2
+        if case == "nested_islands":
+            labels[9:15, 9:15] = 3
+    return labels
+
+
 def test_configured_interpreter_does_not_fall_back(monkeypatch):
     monkeypatch.setenv("FM_UPXO_PYTHON", "/does/not/exist/python")
     assert upxo.resolve_python(required=False) is None
@@ -19,24 +47,20 @@ def test_configured_interpreter_does_not_fall_back(monkeypatch):
         upxo.resolve_python()
 
 
-@pytest.mark.parametrize("active_environment", ["festim-microstructure", "solver"])
-def test_standard_environment_discovery(tmp_path, monkeypatch, active_environment):
-    interpreter = tmp_path / "festim-microstructure" / "bin" / "python"
-    interpreter.parent.mkdir(parents=True)
-    interpreter.touch(mode=0o755)
-    active = tmp_path / active_environment
+@pytest.mark.parametrize("has_upxo", [True, False])
+def test_active_interpreter_is_used_only_when_it_has_upxo(monkeypatch, has_upxo):
     monkeypatch.delenv("FM_UPXO_PYTHON", raising=False)
-    monkeypatch.setattr(upxo.sys, "prefix", str(active))
-    monkeypatch.setattr(upxo.sys, "executable", str(active / "bin" / "python"))
-    monkeypatch.setattr(upxo.importlib.util, "find_spec", lambda name: None)
-
-    if active_environment == "festim-microstructure":
-        # A pre-upgrade environment without UPXO must not discover itself.
+    monkeypatch.setattr(upxo.sys, "executable", "/active/bin/python")
+    monkeypatch.setattr(
+        upxo.importlib.util, "find_spec", lambda name: object() if has_upxo else None
+    )
+    if has_upxo:
+        assert upxo.resolve_python() == "/active/bin/python"
+    else:
+        # Other environments are not searched: activate one or set the variable.
         assert upxo.resolve_python(required=False) is None
         with pytest.raises(FileNotFoundError, match=r"environment\.yml"):
             upxo.resolve_python()
-    else:
-        assert upxo.resolve_python() == str(interpreter)
 
 
 @pytest.mark.parametrize(
@@ -67,7 +91,7 @@ def test_worker_failure_preserves_accepted_outputs(tmp_path, monkeypatch):
     write_ebsd(source, EbsdData(labels, np.array([[1.0, 0, 0, 0]]), (1, 1)))
     mesh = tmp_path / "poly.msh4"
     mesh.write_bytes(b"previous accepted mesh")
-    monkeypatch.setattr(upxo, "resolve_python", lambda explicit: "/fake/python")
+    monkeypatch.setattr(upxo, "resolve_python", lambda **kw: "/fake/python")
     monkeypatch.setattr(upxo, "probe_worker", lambda *a, **kw: {"python": "fake"})
 
     def failed_worker(command, **kwargs):
@@ -106,6 +130,29 @@ def test_geometry_gate_rejects_lost_grain_contact():
     assert report["gap_fraction"] > 0
 
 
+def test_geometry_gate_rejects_filled_parent_hole():
+    shapely = pytest.importorskip("shapely")
+    pytest.importorskip("rasterio")
+    original = upxo.raster_polygons(closed_loop_labels("island"))
+    assert upxo.geometry_metrics(original, original)["accepted"]
+    altered = dict(original)
+    altered[1] = shapely.Polygon(original[1].exterior)
+    report = upxo.geometry_metrics(original, altered)
+    assert not report["accepted"]
+    assert report["overlap_fraction"] > 0
+    assert report["reference_topology"]["1"]["holes"] == 1
+    assert report["actual_topology"]["1"]["holes"] == 0
+
+
+def test_pixel_seeds_sample_their_own_pixel_including_first_row_and_column():
+    from scipy.ndimage import map_coordinates
+
+    labels = np.arange(35, dtype=np.int32).reshape(5, 7)
+    seeds = upxo.pixel_seeds(labels.shape)
+    sampled = map_coordinates(labels, seeds[:, ::-1].T, order=0, mode="nearest")
+    np.testing.assert_array_equal(sampled, labels.ravel())
+
+
 @pytest.mark.parametrize("smoothing", ["none", "taubin"])
 def test_real_worker_retains_island_and_ownership(tmp_path, smoothing):
     if upxo.resolve_python(required=False) is None:
@@ -141,6 +188,42 @@ def test_real_worker_retains_island_and_ownership(tmp_path, smoothing):
 
 
 @pytest.mark.parametrize(
+    ("case", "expected_pairs"),
+    [
+        ("island", [(1, 0), (1, 2)]),
+        ("nested_islands", [(1, 0), (1, 2), (2, 3)]),
+        ("disconnected", [(1, 0), (1, 2), (1, 2)]),
+        ("void", [(1, 0), (1, 0)]),
+    ],
+)
+def test_boundary_arcs_keep_disconnected_closed_loops(case, expected_pairs):
+    triangles, owners = pixel_triangles(closed_loop_labels(case))
+    arcs, nonmanifold = upxo.boundary_arcs(triangles, owners)
+    assert nonmanifold == 0
+    assert sorted(pair for pair, _edges in arcs) == sorted(expected_pairs)
+    for _pair, edges in arcs:
+        nodes, counts = np.unique(np.asarray(edges), return_counts=True)
+        assert len(nodes) > 0
+        np.testing.assert_array_equal(counts, 2)
+
+
+def test_boundary_arcs_split_at_triple_junction():
+    labels = np.ones((24, 24), dtype=np.int32)
+    labels[:12, 12:] = 2
+    labels[12:] = 3
+    triangles, owners = pixel_triangles(labels)
+    arcs, nonmanifold = upxo.boundary_arcs(triangles, owners)
+    interior = [(pair, edges) for pair, edges in arcs if 0 not in pair]
+    assert nonmanifold == 0
+    assert sorted(pair for pair, _edges in interior) == [(1, 2), (1, 3), (2, 3)]
+    endpoints = []
+    for _pair, edges in interior:
+        nodes, counts = np.unique(np.asarray(edges), return_counts=True)
+        endpoints.append(set(nodes[counts == 1]))
+    assert len(set.intersection(*endpoints)) == 1
+
+
+@pytest.mark.parametrize(
     "case,expected",
     [
         ("island", {"1": {"parts": 1, "holes": 1}, "2": {"parts": 1, "holes": 0}}),
@@ -152,14 +235,7 @@ def test_real_worker_retains_island_and_ownership(tmp_path, smoothing):
     ],
 )
 def test_triangle_topology_counts_islands_voids_and_disconnected_parts(case, expected):
-    from test_upxo_evaluation import pixel_triangles
-
-    labels = np.ones((24, 24), dtype=np.int32)
-    if case == "disconnected":
-        labels[5:9, 5:9] = labels[15:19, 15:19] = 2
-    else:
-        labels[8:16, 8:16] = 0 if case == "void" else 2
-    triangles, owners = pixel_triangles(labels)
+    triangles, owners = pixel_triangles(closed_loop_labels(case))
     assert upxo.mesh_topology(triangles, owners) == expected
 
 
@@ -211,7 +287,7 @@ def test_real_worker_thin_grain_protection_preserves_labels(tmp_path):
 @pytest.mark.parametrize(
     "version,revision,defdap,error",
     [
-        ("1.2.0", upxo.UPXO_REVISION, "0.93.6", "UPXO 1.3.1"),
+        ("1.2.0", upxo.UPXO_REVISION, "0.93.6", f"UPXO {upxo.UPXO_VERSION}"),
         (upxo.UPXO_VERSION, "wrong", "0.93.6", "evaluated commit"),
         (upxo.UPXO_VERSION, upxo.UPXO_REVISION, "0.93.5", "DefDAP 0.93.6"),
         (upxo.UPXO_VERSION, upxo.UPXO_REVISION, "0.93.6", None),
@@ -248,7 +324,7 @@ def test_shared_worker_compatibility(monkeypatch, version, revision, defdap, err
     ],
 )
 def test_environment_probe_errors_are_actionable(monkeypatch, error):
-    monkeypatch.setattr(upxo, "resolve_python", lambda explicit: "/fake/python")
+    monkeypatch.setattr(upxo, "resolve_python", lambda **kw: "/fake/python")
 
     def fail(*args, **kwargs):
         raise error
@@ -266,8 +342,8 @@ def test_import_identity_observes_environment_variable_and_package_changes(
     ctf = ctf_writer(tmp_path / "map.ctf", np.zeros((4, 4, 3)))
     observed = {"version": "first"}
 
-    def probe(executable, **kwargs):
-        return {"executable": upxo.resolve_python(executable), **observed}
+    def probe(**kwargs):
+        return {"executable": upxo.resolve_python(), **observed}
 
     monkeypatch.setattr(upxo, "probe_worker", probe)
     conversion = CtfConversion(Settings(ctf=str(ctf)))
@@ -287,7 +363,7 @@ def test_mesh_cache_invalidates_when_worker_environment_changes(tmp_path, monkey
         source, EbsdData(np.ones((4, 4), dtype=int), np.array([[1.0, 0, 0, 0]]), (1, 1))
     )
     observed = {"version": "first"}
-    monkeypatch.setattr(upxo, "resolve_python", lambda explicit: "/fake/python")
+    monkeypatch.setattr(upxo, "resolve_python", lambda **kw: "/fake/python")
     monkeypatch.setattr(upxo, "probe_worker", lambda *a, **kw: dict(observed))
     calls = []
 
@@ -318,7 +394,7 @@ def test_environment_fingerprint_detects_same_version_reinstall(monkeypatch):
         lambda: [
             SimpleNamespace(
                 metadata={"Name": "upxo"},
-                version="1.3.1",
+                version=upxo.UPXO_VERSION,
                 read_text=lambda name: record[name],
             )
         ],
