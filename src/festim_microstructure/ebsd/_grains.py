@@ -10,8 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import _options
-from . import _upxo as upxo
+from . import _options, _upxo, _worker
 from ._archive import EbsdData, read_ebsd, write_ebsd
 from ._ctf import CtfMap
 from ._import_checks import (
@@ -116,10 +115,10 @@ class CtfConversion:
         log=print,
         *,
         python=None,
-        timeout=upxo.DEFAULT_WORKER_TIMEOUT,
+        timeout=_options.DEFAULT_WORKER_TIMEOUT,
         check_images=False,
     ):
-        upxo._validate_timeout(timeout)
+        _options._validate_timeout(timeout)
         self.settings = settings
         self.log = log or (lambda *args: None)
         self.python = python
@@ -168,7 +167,7 @@ class CtfConversion:
 
     def import_grains(self):
         opt = self.settings
-        imported = upxo.import_ebsd(
+        imported = _worker.import_ebsd(
             self.ctf,
             self.window,
             self.ok,
@@ -287,13 +286,14 @@ class CtfConversion:
                     source_sha256=hashlib.sha256(
                         Path(self.settings.ctf).read_bytes()
                     ).hexdigest(),
-                    upxo_revision=upxo.UPXO_REVISION,
-                    worker_environment=upxo.probe_worker(
+                    upxo_revision=_upxo.UPXO_REVISION,
+                    worker_environment=_worker.probe_worker(
                         self.python, timeout=self.timeout
                     ),
                     code_sha256=hashlib.sha256(
                         Path(__file__).read_bytes()
-                        + Path(upxo.__file__).read_bytes()
+                        + Path(_worker.__file__).read_bytes()
+                        + _worker.WORKER_SCRIPT.read_bytes()
                         + Path(_options.__file__).read_bytes()
                     ).hexdigest(),
                 )
@@ -389,7 +389,7 @@ def convert(
     log=print,
     force=True,
     python=None,
-    timeout=upxo.DEFAULT_WORKER_TIMEOUT,
+    timeout=_options.DEFAULT_WORKER_TIMEOUT,
     check_images=False,
     **kwargs,
 ):

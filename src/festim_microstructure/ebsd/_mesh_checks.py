@@ -402,14 +402,6 @@ def overlay(
     return output
 
 
-UNIT_NAMES = {1e-9: "nm", 1e-6: "um", 1e-3: "mm", 1.0: "m"}
-
-
-def unit_name(unit):
-    """Display label for a metres-per-source-coordinate scale."""
-    return UNIT_NAMES.get(unit, "source units")
-
-
 def mesh_diagnostics(base, unit_name="um", check_images=True):
     """Compare final SI mesh with imported labels, in source display units."""
     base = Path(base)

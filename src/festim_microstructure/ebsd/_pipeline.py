@@ -6,10 +6,11 @@ from pathlib import Path
 from mpi4py import MPI
 
 from ._grains import convert
-from ._mesh_checks import mesh_diagnostics, unit_name, write_network_png
+from ._mesh_checks import mesh_diagnostics, write_network_png
 from ._options import UpxoMeshOptions
+from ._plotting import unit_name
 from ._topology import EbsdMicrostructure
-from ._upxo import mesh_grains, resolve_python
+from ._worker import mesh_grains, resolve_python
 
 __all__ = ["run_ebsd_pipeline"]
 
@@ -27,6 +28,7 @@ def run_ebsd_pipeline(
     options.__post_init__()
     if not isinstance(options.mesh, UpxoMeshOptions):
         raise TypeError("EbsdOptions.mesh must be UpxoMeshOptions")
+    display_unit = unit_name(options.unit)
     # Only one rank imports/publishes files; all ranks load the accepted mesh.
     # Propagate preparation failures before entering collective mesh import.
     comm = MPI.COMM_WORLD
@@ -54,9 +56,7 @@ def run_ebsd_pipeline(
                 python=executable,
                 timeout=options.timeout,
             )
-            mesh_diagnostics(
-                base, unit_name(options.unit), check_images=options.check_images
-            )
+            mesh_diagnostics(base, display_unit, check_images=options.check_images)
         except Exception as exc:
             failure = exc
     base, failure = comm.bcast((base, failure), root=0)
@@ -83,6 +83,6 @@ def run_ebsd_pipeline(
             micro,
             f"{base}-ebsd.npz",
             options.unit,
-            unit_name(options.unit),
+            display_unit,
         )
     return micro

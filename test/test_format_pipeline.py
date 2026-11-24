@@ -24,7 +24,7 @@ from festim_microstructure.ebsd._orientation import (
     qmul,
 )
 from festim_microstructure.ebsd._provenance import read_provenance
-from festim_microstructure.ebsd._upxo import resolve_python
+from festim_microstructure.ebsd._worker import resolve_python
 from festim_microstructure.msh4 import read_msh4
 
 

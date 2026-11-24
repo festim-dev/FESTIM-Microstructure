@@ -185,6 +185,7 @@ FESTIM-Microstructure/
 │   │   ├── _provenance.py
 │   │   ├── _grains.py
 │   │   ├── _upxo.py
+│   │   ├── _worker.py
 │   │   ├── _import_checks.py
 │   │   ├── _mesh_checks.py
 │   │   └── _plotting.py          # diagnostic raster colours and scale bars

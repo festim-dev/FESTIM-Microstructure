@@ -5,7 +5,7 @@ import importlib
 import os
 import sys
 
-from .ebsd._upxo import PYTHON_ENV, probe_worker, resolve_python
+from .ebsd._worker import PYTHON_ENV, probe_worker, resolve_python
 
 __all__ = ["main"]
 

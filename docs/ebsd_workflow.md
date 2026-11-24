@@ -78,6 +78,8 @@ For separate import/inspection, use
 `fm.ebsd.measure_against_ctf(ctf, "grains.npz")`.
 `fm.ebsd.mesh_grains("grains.npz", ...)` meshes an existing native archive.
 `force=False` checks source/settings/code and output hashes before cache reuse.
+For meshing, the code digest covers the executable worker and the cache key
+also includes the serialized mesh options. An older digest triggers a rebuild.
 A failed meshing worker retains the previous accepted mesh and writes a failure
 validation report and log.
 

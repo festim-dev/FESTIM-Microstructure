@@ -1,5 +1,6 @@
 """Geometry preservation, failure handling and UPXO interpreter isolation."""
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -11,6 +12,7 @@ from festim_microstructure.ebsd import (
     EbsdOptions,
     Settings,
     UpxoMeshOptions,
+    _worker,
     mesh_grains,
 )
 from festim_microstructure.ebsd import (
@@ -22,21 +24,21 @@ from festim_microstructure.ebsd._orientation import euler_bunge_to_quat
 
 def test_configured_interpreter_does_not_fall_back(monkeypatch):
     monkeypatch.setenv("FM_EBSD_PYTHON", "/does/not/exist/python")
-    assert upxo.resolve_python(required=False) is None
+    assert _worker.resolve_python(required=False) is None
     with pytest.raises(FileNotFoundError, match="FM_EBSD_PYTHON"):
-        upxo.resolve_python()
+        _worker.resolve_python()
 
 
 def test_legacy_interpreter_override_warns(monkeypatch):
     monkeypatch.setenv("FM_UPXO_PYTHON", "/retired/worker/python")
-    monkeypatch.setenv("FM_EBSD_PYTHON", upxo.sys.executable)
+    monkeypatch.setenv("FM_EBSD_PYTHON", _worker.sys.executable)
     with pytest.warns(UserWarning, match="FM_EBSD_PYTHON.*unset FM_UPXO_PYTHON"):
-        assert upxo.resolve_python() == upxo.sys.executable
+        assert _worker.resolve_python() == _worker.sys.executable
 
 
 def test_invalid_explicit_interpreter_takes_precedence(monkeypatch):
-    monkeypatch.setenv("FM_EBSD_PYTHON", upxo.sys.executable)
-    assert upxo.resolve_python("/missing/worker/python", required=False) is None
+    monkeypatch.setenv("FM_EBSD_PYTHON", _worker.sys.executable)
+    assert _worker.resolve_python("/missing/worker/python", required=False) is None
 
 
 @pytest.mark.parametrize("active_environment", ["festim-microstructure", "solver"])
@@ -46,17 +48,17 @@ def test_standard_environment_discovery(tmp_path, monkeypatch, active_environmen
     interpreter.touch(mode=0o755)
     active = tmp_path / active_environment
     monkeypatch.delenv("FM_EBSD_PYTHON", raising=False)
-    monkeypatch.setattr(upxo.sys, "prefix", str(active))
-    monkeypatch.setattr(upxo.sys, "executable", str(active / "bin" / "python"))
-    monkeypatch.setattr(upxo.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(_worker.sys, "prefix", str(active))
+    monkeypatch.setattr(_worker.sys, "executable", str(active / "bin" / "python"))
+    monkeypatch.setattr(_worker.importlib.util, "find_spec", lambda name: None)
 
     if active_environment == "festim-microstructure":
         # A pre-upgrade environment without UPXO must not discover itself.
-        assert upxo.resolve_python(required=False) is None
+        assert _worker.resolve_python(required=False) is None
         with pytest.raises(FileNotFoundError, match=r"environment\.yml"):
-            upxo.resolve_python()
+            _worker.resolve_python()
     else:
-        assert upxo.resolve_python() == str(interpreter)
+        assert _worker.resolve_python() == str(interpreter)
 
 
 @pytest.mark.parametrize(
@@ -87,8 +89,8 @@ def test_worker_failure_preserves_accepted_outputs(tmp_path, monkeypatch):
     write_ebsd(source, EbsdData(labels, np.array([[1.0, 0, 0, 0]]), (1, 1)))
     mesh = tmp_path / "poly.msh4"
     mesh.write_bytes(b"previous accepted mesh")
-    monkeypatch.setattr(upxo, "resolve_python", lambda explicit: "/fake/python")
-    monkeypatch.setattr(upxo, "probe_worker", lambda *a, **kw: {"python": "fake"})
+    monkeypatch.setattr(_worker, "resolve_python", lambda explicit: "/fake/python")
+    monkeypatch.setattr(_worker, "probe_worker", lambda *a, **kw: {"python": "fake"})
 
     def failed_worker(command, **kwargs):
         stage = Path(command[-1]).parent
@@ -103,7 +105,7 @@ def test_worker_failure_preserves_accepted_outputs(tmp_path, monkeypatch):
         (stage / "poly.msh4").write_bytes(b"rejected mesh")
         raise subprocess.CalledProcessError(1, command)
 
-    monkeypatch.setattr(upxo.subprocess, "run", failed_worker)
+    monkeypatch.setattr(_worker.subprocess, "run", failed_worker)
     with pytest.raises(RuntimeError, match="UPXO meshing failed"):
         mesh_grains(source, workdir=tmp_path)
     assert mesh.read_bytes() == b"previous accepted mesh"
@@ -128,7 +130,7 @@ def test_geometry_gate_rejects_lost_grain_contact():
 
 @pytest.mark.parametrize("smoothing", ["none", "taubin"])
 def test_real_worker_retains_island_and_ownership(tmp_path, smoothing):
-    if upxo.resolve_python(required=False) is None:
+    if _worker.resolve_python(required=False) is None:
         pytest.skip("configure FM_EBSD_PYTHON for the UPXO integration test")
     from festim_microstructure.msh4 import read_msh4
 
@@ -184,7 +186,7 @@ def test_triangle_topology_counts_islands_voids_and_disconnected_parts(case, exp
 @pytest.mark.parametrize("smoothing", ["none", "taubin"])
 def test_real_worker_void_preservation(tmp_path, smoothing):
     """Exact polygons preserve voids; moving their boundary remains a rejection."""
-    if upxo.resolve_python(required=False) is None:
+    if _worker.resolve_python(required=False) is None:
         pytest.skip("UPXO interpreter unavailable")
     labels = np.ones((24, 24), dtype=np.int32)
     labels[8:16, 8:16] = 0
@@ -205,7 +207,7 @@ def test_real_worker_void_preservation(tmp_path, smoothing):
 
 
 def test_real_worker_thin_grain_protection_preserves_labels(tmp_path):
-    if upxo.resolve_python(required=False) is None:
+    if _worker.resolve_python(required=False) is None:
         pytest.skip("UPXO interpreter unavailable")
     labels = np.ones((24, 24), dtype=np.int32)
     labels[:, 11:12] = 2
@@ -261,14 +263,14 @@ def test_shared_worker_compatibility(monkeypatch, version, revision, defdap, err
     ],
 )
 def test_environment_probe_errors_are_actionable(monkeypatch, error):
-    monkeypatch.setattr(upxo, "resolve_python", lambda explicit: "/fake/python")
+    monkeypatch.setattr(_worker, "resolve_python", lambda explicit: "/fake/python")
 
     def fail(*args, **kwargs):
         raise error
 
-    monkeypatch.setattr(upxo.subprocess, "run", fail)
+    monkeypatch.setattr(_worker.subprocess, "run", fail)
     with pytest.raises(RuntimeError, match="environment probe failed"):
-        upxo.probe_worker()
+        _worker.probe_worker()
 
 
 def test_import_identity_observes_environment_variable_and_package_changes(
@@ -280,9 +282,9 @@ def test_import_identity_observes_environment_variable_and_package_changes(
     observed = {"version": "first"}
 
     def probe(executable, **kwargs):
-        return {"executable": upxo.resolve_python(executable), **observed}
+        return {"executable": _worker.resolve_python(executable), **observed}
 
-    monkeypatch.setattr(upxo, "probe_worker", probe)
+    monkeypatch.setattr(_worker, "probe_worker", probe)
     conversion = CtfConversion(Settings(ctf=str(ctf)))
     monkeypatch.setenv("FM_EBSD_PYTHON", "/usr/bin/python3")
     first = conversion.identity()
@@ -293,15 +295,15 @@ def test_import_identity_observes_environment_variable_and_package_changes(
     assert second != conversion.identity()
 
 
-def test_mesh_cache_invalidates_when_worker_environment_changes(tmp_path, monkeypatch):
-    """A dependency replacement at the same executable must rerun the worker."""
+def test_mesh_cache_checks_worker_digest_and_environment(tmp_path, monkeypatch):
+    """Reuse a matching manifest and refresh old digests or environments."""
     source = tmp_path / "map.npz"
     write_ebsd(
         source, EbsdData(np.ones((4, 4), dtype=int), np.array([[1.0, 0, 0, 0]]), (1, 1))
     )
     observed = {"version": "first"}
-    monkeypatch.setattr(upxo, "resolve_python", lambda explicit: "/fake/python")
-    monkeypatch.setattr(upxo, "probe_worker", lambda *a, **kw: dict(observed))
+    monkeypatch.setattr(_worker, "resolve_python", lambda explicit: "/fake/python")
+    monkeypatch.setattr(_worker, "probe_worker", lambda *a, **kw: dict(observed))
     calls = []
 
     def worker(command, **kwargs):
@@ -309,13 +311,24 @@ def test_mesh_cache_invalidates_when_worker_environment_changes(tmp_path, monkey
         stage = Path(command[-1]).parent
         (stage / "poly.msh4").write_text("accepted mesh")
 
-    monkeypatch.setattr(upxo.subprocess, "run", worker)
-    mesh_grains(source, workdir=tmp_path, force=False)
+    monkeypatch.setattr(_worker.subprocess, "run", worker)
+    base = mesh_grains(source, workdir=tmp_path, force=False)
     mesh_grains(source, workdir=tmp_path, force=False)
     assert len(calls) == 1
-    observed["version"] = "replacement"
+    manifest = Path(f"{base}-upxo.json")
+    saved = json.loads(manifest.read_text())
+    worker_code = Path(upxo.__file__).read_bytes()
+    assert saved["identity"]["worker_sha256"] == hashlib.sha256(worker_code).hexdigest()
+
+    saved["identity"]["worker_sha256"] = "old-digest"
+    manifest.write_text(json.dumps(saved))
+    mesh_grains(source, workdir=tmp_path, force=False)
     mesh_grains(source, workdir=tmp_path, force=False)
     assert len(calls) == 2
+
+    observed["version"] = "replacement"
+    mesh_grains(source, workdir=tmp_path, force=False)
+    assert len(calls) == 3
 
 
 def test_environment_fingerprint_detects_same_version_reinstall(monkeypatch):
@@ -344,4 +357,4 @@ def test_environment_fingerprint_detects_same_version_reinstall(monkeypatch):
 def test_environment_probe_rejects_missing_interpreter(monkeypatch):
     monkeypatch.setenv("FM_EBSD_PYTHON", "/does/not/exist")
     with pytest.raises(RuntimeError, match="environment probe failed"):
-        upxo.probe_worker()
+        _worker.probe_worker()

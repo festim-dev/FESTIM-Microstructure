@@ -10,7 +10,6 @@ import numpy as np
 
 from ._orientation import euler_bunge_to_quat
 from ._provenance import read_provenance
-from ._upxo import DEFAULT_WORKER_TIMEOUT, _validate_timeout
 
 __all__ = [
     "CUBIC_LAUE",
@@ -19,6 +18,14 @@ __all__ = [
     "UpxoMeshOptions",
     "settings_from_provenance",
 ]
+
+
+DEFAULT_WORKER_TIMEOUT = 600.0
+
+
+def _validate_timeout(timeout):
+    if not np.isfinite(timeout) or timeout <= 0:
+        raise ValueError("worker timeout must be finite and positive")
 
 
 def settings_from_provenance(path):

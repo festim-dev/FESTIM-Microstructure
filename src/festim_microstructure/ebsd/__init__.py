@@ -4,7 +4,7 @@ from ._grains import ConversionResult, MeasureOptions, convert, measure_against_
 from ._options import EbsdOptions, Settings, UpxoMeshOptions
 from ._pipeline import run_ebsd_pipeline
 from ._topology import EbsdMicrostructure
-from ._upxo import mesh_grains
+from ._worker import mesh_grains
 
 __all__ = [
     "ConversionResult",
