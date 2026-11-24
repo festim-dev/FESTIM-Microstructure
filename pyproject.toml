@@ -31,7 +31,7 @@ classifiers = [
 # Solver and EBSD dependencies share the standard environment.
 # This mirrors FESTIM's own pyproject, which likewise does not declare dolfinx.
 dependencies = [
-    "festim>=2.2rc2",
+    "festim>=2.2",
     "numpy",
     "scipy",
     "matplotlib",

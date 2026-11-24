@@ -3,10 +3,11 @@
 See the [EBSD workflow guide](ebsd_workflow.md) for the user-facing pipeline,
 mesh options, and provenance.
 
-**Result: the 2D EBSD pathway uses pinned UPXO 1.3.1 with explicit pixel
-seeds and FESTIM’s export adapter. Exact polygons pass all eight fixtures;
-gentle Taubin passes the real crop and six synthetic fixtures. Serial
-CTF-to-FESTIM transport validates boundary exchange and inventory conservation.**
+**UPXO 1.3.1 evaluation: exact polygons passed all eight fixtures. Gentle
+Taubin with explicit pixel seeds passed the real crop and six synthetic
+fixtures. Serial CTF-to-FESTIM transport validated boundary exchange and
+inventory conservation.** See [environment.yml](../environment.yml) for the
+current production pin.
 
 The historical evaluation ran on October 2, 2026, on branch `upxo`, against UPXO 1.2.0 at
 [`fef845ba10a3e849a5bb6b0a3c2ad89098035739`](https://github.com/Design-By-Fundamentals-UKAEA/UPXO/tree/fef845ba10a3e849a5bb6b0a3c2ad89098035739).
@@ -16,7 +17,7 @@ The code imports UPXO; it does not copy or modify UPXO source.
 
 ## UPXO 1.3.1 compatibility refresh
 
-The production pin is now UPXO **1.3.1**, revision
+This evaluation used UPXO **1.3.1**, revision
 [`a53885ef0a7a06f6b3fb195747363ae0a19bb127`](https://github.com/Design-By-Fundamentals-UKAEA/UPXO/tree/a53885ef0a7a06f6b3fb195747363ae0a19bb127),
 with DefDAP **0.93.6**. Both workers share one compatibility check.
 The migration scope is the **2D EBSD pathway**. Generated 2D and 3D
@@ -276,9 +277,10 @@ Taubin's small void-boundary movement fails the partition gate.
 
 ## Reproduction and artifacts
 
-The following version list describes the historical 1.2.0 run; the checkout
-command selects the current 1.3.1 pin. The standard `environment.yml` is the
-preferred installation for reproducing current mesh and solver validation.
+The following version list describes the historical 1.2.0 run. The checkout
+command selects the revision evaluated in the 1.3.1 refresh. The standard
+`environment.yml` is the preferred installation for reproducing current mesh
+and solver validation.
 Current evaluation inputs and expected results store native `grain_quats`
 arrays. Run preparation and meshing before verification to regenerate them.
 

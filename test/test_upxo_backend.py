@@ -202,7 +202,7 @@ def test_real_worker_thin_grain_protection_preserves_labels(tmp_path):
 @pytest.mark.parametrize(
     "version,revision,defdap,error",
     [
-        ("1.2.0", upxo.UPXO_REVISION, "0.93.6", "UPXO 1.3.1"),
+        ("1.2.0", upxo.UPXO_REVISION, "0.93.6", f"UPXO {upxo.UPXO_VERSION}"),
         (upxo.UPXO_VERSION, "wrong", "0.93.6", "evaluated commit"),
         (upxo.UPXO_VERSION, upxo.UPXO_REVISION, "0.93.5", "DefDAP 0.93.6"),
         (upxo.UPXO_VERSION, upxo.UPXO_REVISION, "0.93.6", None),
@@ -309,7 +309,7 @@ def test_environment_fingerprint_detects_same_version_reinstall(monkeypatch):
         lambda: [
             SimpleNamespace(
                 metadata={"Name": "upxo"},
-                version="1.3.1",
+                version=upxo.UPXO_VERSION,
                 read_text=lambda name: record[name],
             )
         ],

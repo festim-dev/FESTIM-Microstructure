@@ -29,9 +29,9 @@ __all__ = [
     "probe_worker",
     "resolve_python",
 ]
-UPXO_VERSION = "1.3.1"
+UPXO_VERSION = "1.5.0"
 DEFDAP_VERSION = "0.93.6"
-UPXO_REVISION = "a53885ef0a7a06f6b3fb195747363ae0a19bb127"
+UPXO_REVISION = "d5d99f43ee59f4a5cb8bb29ac8cd1696682d919c"
 _PROTOCOL = 4
 DEFAULT_WORKER_TIMEOUT = 600.0
 
