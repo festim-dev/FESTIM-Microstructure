@@ -1,31 +1,14 @@
-"""Integrals and topology checks for solved microstructure models."""
-
-from typing import cast
+"""Network measures and topology checks for solved microstructure models."""
 
 from mpi4py import MPI
 
-import dolfinx
 import numpy as np
-import ufl
 
 __all__ = [
     "component_count",
-    "inventory",
     "junction_only_below",
     "submesh_measure",
 ]
-
-
-def inventory(c_b, c_gb, delta):
-    """Total hydrogen: the grains plus the boundary slabs (``delta`` times the
-    network's length in 2D or area in 3D)."""
-    dx_bulk = ufl.Measure("dx", domain=c_b.function_space.mesh)
-    dx_gb = ufl.Measure("dx", domain=c_gb.function_space.mesh)
-    bulk_form = cast(dolfinx.fem.Form, dolfinx.fem.form(c_b * dx_bulk))
-    gb_form = cast(dolfinx.fem.Form, dolfinx.fem.form(c_gb * dx_gb))
-    total = dolfinx.fem.assemble_scalar(bulk_form)
-    total += delta * dolfinx.fem.assemble_scalar(gb_form)
-    return c_b.function_space.mesh.comm.allreduce(total, op=MPI.SUM)
 
 
 def submesh_measure(subdomain):

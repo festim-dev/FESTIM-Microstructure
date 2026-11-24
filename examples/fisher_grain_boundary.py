@@ -25,6 +25,7 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "results" / Path(__file__).stem
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 LEFT, RIGHT = 1, 2  # grain tags either side of the boundary at x = 0
+NETWORK_ID, SURFACE_ID_0 = 3, 4  # subdomain ids above the grain tags
 
 def eval_on(fn, points):
     """Evaluate a fenics Function at a list of (x, y, 0) points."""
@@ -93,22 +94,26 @@ micro = fm.TaggedPolycrystal(
 # The transport model, as FESTIM declarations. E_D = 0 on both phases: the
 # Arrhenius factor is already included above.
 D_lattice, _ = fm.crystal_diffusivity_field(micro, D_B)
-system = fm.GrainBoundarySystem(
-    micro,
-    F.Material(D=D_lattice),
-    F.Material(D_0=D_GB, E_D=0.0),
-    width=delta,
-)
+grains = fm.grain_subdomains(micro, F.Material(D=D_lattice))
+network = fm.grain_boundary_network(NETWORK_ID, micro, F.Material(D_0=D_GB, E_D=0.0))
+grain_species = [F.Species(f"c_{g.id}", subdomains=[g]) for g in grains]
+c_gb = F.Species("c_gb", subdomains=[network])
+species_of = dict(zip((g.id for g in grains), grain_species, strict=True))
 # Large k approaches Fisher's local-equilibrium assumption.
-sources, flux_bcs = system.exchange(k_exchange)
-surfaces, surface_bcs = system.fixed_concentration(
-    lambda x: np.isclose(x[1], 0.0, atol=1e-11), c0
+sources, flux_bcs = fm.exchange(grain_species, c_gb, network, width=delta, k=k_exchange)
+patches, mouths = fm.grain_surfaces(
+    mesh, grains, lambda x: np.isclose(x[1], 0.0, atol=1e-11), SURFACE_ID_0
 )
+surface_bcs = [
+    F.FixedConcentrationBC(subdomain=p, value=c0, species=species_of[p.grain_id])
+    for p in patches
+]
+surface_bcs.append(F.FixedConcentrationBC(subdomain=mouths, value=c0, species=c_gb))
 
 model = F.HydrogenTransportProblemDiscontinuous(
     mesh=F.Mesh(mesh),
-    subdomains=[*system.subdomains, *surfaces],
-    species=system.species,
+    subdomains=[*grains, network, *patches, mouths],
+    species=[*grain_species, c_gb],
     sources=sources,
     boundary_conditions=[*flux_bcs, *surface_bcs],
     temperature=T,
@@ -120,17 +125,17 @@ model.initialise()
 fm.fem.tune_direct_solver(model)
 model.run()
 fm.exports.averages.write_vtx(
-    system.grains,
-    system.grain_species,
-    system.network,
-    system.c_gb,
+    grains,
+    grain_species,
+    network,
+    c_gb,
     OUTPUT_DIR / "fisher",
     time=t_end,
 )
 
-right = system.grains[RIGHT - 1]
-cb_fn = system.grain_species[RIGHT - 1].subdomain_to_post_processing_solution[right]
-cg_fn = system.c_gb.subdomain_to_post_processing_solution[system.network]
+right = grains[RIGHT - 1]
+cb_fn = grain_species[RIGHT - 1].subdomain_to_post_processing_solution[right]
+cg_fn = c_gb.subdomain_to_post_processing_solution[network]
 
 # Analysis
 order = np.argsort(cg_fn.function_space.tabulate_dof_coordinates()[:, 1])

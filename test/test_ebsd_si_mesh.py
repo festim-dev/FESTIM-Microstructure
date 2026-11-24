@@ -144,24 +144,27 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
         fm.crystal_diffusivity_field(loaded, 1e-12, crystal_anisotropy=2.0)
 
     # The interior grain is enclosed, so the top edge has only a grain patch.
-    system = fm.GrainBoundarySystem(
-        loaded,
-        F.Material(D=isotropic),
-        width=1e-7,
-        diffusivity_by_entity=np.full_like(loaded.theta, 1e-10),
+    grains = fm.grain_subdomains(loaded, F.Material(D=isotropic))
+    network = fm.grain_boundary_network(
+        100, loaded, None, diffusivity_by_entity=np.full_like(loaded.theta, 1e-10)
     )
-    surfaces, fixed = system.fixed_concentration(
-        lambda x: np.isclose(x[1], loaded.extent[1]),
-        lambda x: 1.0 + x[0],
-        include_mouths=False,
+    species = {g.id: F.Species(f"c_{g.id}", subdomains=[g]) for g in grains}
+    c_gb = F.Species("c_gb", subdomains=[network])
+    patches, _ = fm.grain_surfaces(
+        loaded.mesh, grains, lambda x: np.isclose(x[1], loaded.extent[1]), 200
     )
-    assert len(surfaces) == len(fixed) == 1
-    assert surfaces[0].grain_id == 1
-    sources, flux = system.exchange(1e-7)
+    assert [p.grain_id for p in patches] == [1]
+    fixed = [
+        F.FixedConcentrationBC(
+            subdomain=p, value=lambda x: 1.0 + x[0], species=species[p.grain_id]
+        )
+        for p in patches
+    ]
+    sources, flux = fm.exchange(species.values(), c_gb, network, width=1e-7, k=1e-7)
     model = F.HydrogenTransportProblemDiscontinuous(
         mesh=F.Mesh(loaded.mesh),
-        subdomains=[*system.subdomains, *surfaces],
-        species=system.species,
+        subdomains=[*grains, network, *patches],
+        species=[*species.values(), c_gb],
         sources=sources,
         boundary_conditions=[*flux, *fixed],
         temperature=500.0,
@@ -244,26 +247,24 @@ def test_ctf_transport_conserves_inventory_and_exchanges_with_boundary(
     k = dolfinx.fem.Constant(micro.mesh, dolfinx.default_scalar_type(0.0))
     width = dolfinx.fem.Constant(micro.mesh, dolfinx.default_scalar_type(2 * delta))
     lattice, _ = fm.crystal_diffusivity_field(micro, 1e-12)
-    system = fm.GrainBoundarySystem(
-        micro, F.Material(D=lattice), F.Material(D_0=1e-10, E_D=0.0), width=width
-    )
-    assert system.width is width
-    sources, flux = system.exchange(k)
+    grains = fm.grain_subdomains(micro, F.Material(D=lattice))
+    network = fm.grain_boundary_network(100, micro, F.Material(D_0=1e-10, E_D=0.0))
+    species = [F.Species(f"c_{g.id}", subdomains=[g]) for g in grains]
+    c_gb = F.Species("c_gb", subdomains=[network])
+    sources, flux = fm.exchange(species, c_gb, network, width=width, k=k)
     settings = F.Settings(
         atol=1e-25, rtol=1e-10, transient=True, final_time=0.2, stepsize=0.02
     )
     model = F.HydrogenTransportProblemDiscontinuous(
         mesh=F.Mesh(micro.mesh),
-        subdomains=system.subdomains,
-        species=system.species,
+        subdomains=[*grains, network],
+        species=[*species, c_gb],
         sources=sources,
         boundary_conditions=flux,
         temperature=500.0,
         settings=settings,
     )
     model.show_progress_bar = False
-    grains, species = system.grains, system.grain_species
-    network, c_gb = system.network, system.c_gb
     model.initial_conditions = [
         F.InitialConcentration(value=1.0, species=c, volume=g)
         for c, g in zip(species, grains, strict=True)
@@ -278,15 +279,11 @@ def test_ctf_transport_conserves_inventory_and_exchanges_with_boundary(
     for subdomain in model.volume_subdomains:
         subdomain.u.x.array[:] = subdomain.u_n.x.array
     model.post_processing()
-    initial = system.inventory()
+    initial = inventory(grains, species, network, c_gb, delta)
     np.testing.assert_allclose(initial, 8e-6 * 9e-6, rtol=1e-10, atol=0)
     model.run()
-    final = system.inventory()
+    final = inventory(grains, species, network, c_gb, delta)
     np.testing.assert_allclose(final, initial, rtol=1e-8, atol=0)
     gb_solution = c_gb.subdomain_to_post_processing_solution[network]
     assert gb_solution.x.array.mean() > 0.01
     assert all(c.x.array.mean() < 1.0 for c in solutions(species, grains))
-    width.value = 2 * delta
-    assert system.inventory() == pytest.approx(
-        inventory(grains, species, network, c_gb, 2 * delta), rel=1e-10, abs=0
-    )

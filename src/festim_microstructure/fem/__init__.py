@@ -1,7 +1,7 @@
 """FESTIM declarations and solver helpers for grain-boundary transport."""
 
-from . import solvers, subdomains
-from ._system import GrainBoundarySystem
+from . import coupling, solvers, subdomains
+from .coupling import exchange
 from .solvers import tune_direct_solver
 from .subdomains import (
     Grain,
@@ -17,8 +17,9 @@ from .subdomains import (
 __all__ = [
     "Grain",
     "GrainBoundaryNetwork",
-    "GrainBoundarySystem",
     "GrainSurface",
+    "coupling",
+    "exchange",
     "facet_midpoints",
     "grain_boundary_network",
     "grain_subdomains",

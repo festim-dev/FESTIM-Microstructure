@@ -33,6 +33,8 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "results" / Path(__file__).stem
 # silently; see docs/gb_homogenisation.md. Nondimensionalising is the better fix.
 ATOL = 1e-25
 RTOL = 1e-10
+NETWORK_ID = 1_000_000  # above every grain id
+SURFACE_ID_0 = 2_000_000  # surfaces are numbered from here
 
 
 @dataclass(frozen=True)
@@ -97,22 +99,33 @@ class CellProblem:
     model: F.HydrogenTransportProblemDiscontinuous
     micro: fm.VoronoiMicrostructure
     transport: Transport
-    system: fm.GrainBoundarySystem
+    grains: list
+    grain_species: list
+    network: fm.GrainBoundaryNetwork
+    c_gb: F.Species
     tensors: dict  # grain id -> lattice tensor
+
+    @property
+    def fields(self):
+        """Grains, their species, the network and its species, aligned."""
+        return self.grains, self.grain_species, self.network, self.c_gb
 
     def averages(self, window=None):
         """Flux, gradient and measure, delegated to the package."""
-        system = self.system
         return fm.exports.averages.averages(
-            system.grains,
-            system.grain_species,
+            self.grains,
+            self.grain_species,
             self.tensors,
-            system.network,
-            system.c_gb,
+            self.network,
+            self.c_gb,
             self.transport.delta,
             self.transport.D_gb,
             window,
         )
+
+    def inventory(self):
+        """Hydrogen in the grains plus the width-scaled network."""
+        return fm.exports.averages.inventory(*self.fields, self.transport.delta)
 
     def solve(self):
         """Initialize and run the cell problem, then return it."""
@@ -127,29 +140,45 @@ def cell_problem(micro, transport, bcs, settings=None):
     D_lattice, tensors = fm.crystal_diffusivity_field(
         micro, transport.D_bulk, transport.crystal_anisotropy
     )
-    system = fm.GrainBoundarySystem(
-        micro,
-        F.Material(D=D_lattice),
-        F.Material(D_0=transport.D_gb, E_D=0.0),
-        width=transport.delta,
+    grains = fm.grain_subdomains(micro, F.Material(D=D_lattice))
+    network = fm.grain_boundary_network(
+        NETWORK_ID, micro, F.Material(D_0=transport.D_gb, E_D=0.0)
     )
-    sources, boundary_conditions = system.exchange(transport.k)
-    subdomains = system.subdomains
+    grain_species = [F.Species(f"c_{g.id}", subdomains=[g]) for g in grains]
+    c_gb = F.Species("c_gb", subdomains=[network])
+    species_of = dict(zip((g.id for g in grains), grain_species, strict=True))
+    sources, boundary_conditions = fm.exchange(
+        grain_species, c_gb, network, width=transport.delta, k=transport.k
+    )
+    subdomains = [*grains, network]
+    surface_id = SURFACE_ID_0
     for locator, value in bcs:
-        surfaces, fixed = system.fixed_concentration(locator, value)
-        subdomains.extend(surfaces)
-        boundary_conditions.extend(fixed)
+        # The patch each grain owns on this surface, and the network's mouths.
+        patches, mouths = fm.grain_surfaces(micro.mesh, grains, locator, surface_id)
+        surface_id = mouths.id + 1
+        subdomains += [*patches, mouths]
+        boundary_conditions += [
+            F.FixedConcentrationBC(
+                subdomain=p, value=value, species=species_of[p.grain_id]
+            )
+            for p in patches
+        ]
+        boundary_conditions.append(
+            F.FixedConcentrationBC(subdomain=mouths, value=value, species=c_gb)
+        )
 
     model = F.HydrogenTransportProblemDiscontinuous(
         mesh=F.Mesh(micro.mesh),
         subdomains=subdomains,
-        species=system.species,
+        species=[*grain_species, c_gb],
         sources=sources,
         boundary_conditions=boundary_conditions,
         temperature=transport.T,
         settings=settings or F.Settings(atol=ATOL, rtol=RTOL, transient=False),
     )
-    return CellProblem(model, micro, transport, system, tensors)
+    return CellProblem(
+        model, micro, transport, grains, grain_species, network, c_gb, tensors
+    )
 
 
 def make_microstructure(size, grain_size, aspect=1.0, seed=0, cells_per_grain=10):
@@ -264,16 +293,9 @@ def identify(
         Q_cell[:, j], H_cell[:, j] = q, g
         q_w, g_w, _ = cp.averages(window=window)
         Q_win[:, j], H_win[:, j] = q_w, g_w
-        system = cp.system
         eq_error = max(
             eq_error,
-            fm.exports.averages.equilibrium_error(
-                system.grains,
-                system.grain_species,
-                system.network,
-                system.c_gb,
-                micro.tolerance,
-            ),
+            fm.exports.averages.equilibrium_error(*cp.fields, micro.tolerance),
         )
         hart = hart_bound(cp)
         if field_cases is not None:
@@ -285,11 +307,7 @@ def identify(
             # the grains as one discontinuous parent field (so the jumps show),
             # and the network as a line dataset
             fm.exports.averages.write_vtx(
-                system.grains,
-                system.grain_species,
-                system.network,
-                system.c_gb,
-                f"{export_prefix}_{'xy'[j]}",
+                *cp.fields, f"{export_prefix}_{'xy'[j]}"
             )
         if verbose:
             print(f"    solved cell problem G = e_{'xy'[j]}", flush=True)
@@ -442,7 +460,7 @@ def uptake(micro, transport, D_eff, n_steps=60, verbose=True):
         cp.model.iterate()
         homogeneous.iterate()
         times.append(float(cp.model.t))
-        micro_inventory.append(cp.system.inventory())
+        micro_inventory.append(cp.inventory())
         model_inventory.append(float(total.value))
         if verbose and len(times) % 10 == 0:
             print(
@@ -572,8 +590,7 @@ def network_flux_segments(cp, scale):
     number exceeds the grain width is moving more hydrogen than a whole grain of
     lattice beside it.
     """
-    system = cp.system
-    c = system.c_gb.subdomain_to_post_processing_solution[system.network]
+    c = cp.c_gb.subdomain_to_post_processing_solution[cp.network]
     V = c.function_space
     coords = V.tabulate_dof_coordinates()
     cells = V.dofmap.list

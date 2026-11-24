@@ -52,6 +52,8 @@ F_GB_THIN = [0.003, 0.01, 0.03, 0.1]
 SIMULATED = [("col_x", 0), ("iso", 2)]
 LABEL = {"col_z": "Col_I(Z)", "col_x": "Col_I(X)", "iso": "Iso"}
 K_B = 8.617333e-5  # eV/K
+NETWORK_ID = 1_000_000  # above every grain id
+SURFACE_ID_0 = 2_000_000  # surfaces are numbered from here
 
 
 def D_m(T):
@@ -96,9 +98,13 @@ class CellProblem:
     """One declared problem and the coefficients the sweep changes."""
 
     model: F.HydrogenTransportProblemDiscontinuous
-    system: fm.GrainBoundarySystem
+    grains: list
+    grain_species: list
+    network: fm.GrainBoundaryNetwork
+    c_gb: F.Species
     tensors: dict
     D_gb: float
+    width: dolfinx.fem.Constant
     k: dolfinx.fem.Constant
 
     def solve(self, delta, k):
@@ -108,7 +114,7 @@ class CellProblem:
         residual test compares against the first residual, which a warm start
         makes a round-off floor.
         """
-        self.system.width.value = delta
+        self.width.value = delta
         self.k.value = k
         for subdomain in self.model.volume_subdomains:
             subdomain.u.x.array[:] = 0.0
@@ -120,21 +126,38 @@ class CellProblem:
 def cell_problem(micro, D_gb, bcs):
     """Declare transport with a width and exchange rate set per sweep point."""
     D_lattice, tensors = fm.crystal_diffusivity_field(micro, D_m(T))
-    system = fm.GrainBoundarySystem(
-        micro, F.Material(D=D_lattice), F.Material(D_0=D_gb, E_D=0.0), width=1.0
+    grains = fm.grain_subdomains(micro, F.Material(D=D_lattice))
+    network = fm.grain_boundary_network(
+        NETWORK_ID, micro, F.Material(D_0=D_gb, E_D=0.0)
     )
+    grain_species = [F.Species(f"c_{g.id}", subdomains=[g]) for g in grains]
+    c_gb = F.Species("c_gb", subdomains=[network])
+    species_of = dict(zip((g.id for g in grains), grain_species, strict=True))
+    width = dolfinx.fem.Constant(micro.mesh, dolfinx.default_scalar_type(1.0))
     k = dolfinx.fem.Constant(micro.mesh, dolfinx.default_scalar_type(1.0))
-    sources, boundary_conditions = system.exchange(k)
-    subdomains = system.subdomains
+    sources, boundary_conditions = fm.exchange(
+        grain_species, c_gb, network, width=width, k=k
+    )
+    subdomains = [*grains, network]
+    surface_id = SURFACE_ID_0
     for locator, value in bcs:
-        surfaces, fixed = system.fixed_concentration(locator, value)
-        subdomains.extend(surfaces)
-        boundary_conditions.extend(fixed)
+        patches, mouths = fm.grain_surfaces(micro.mesh, grains, locator, surface_id)
+        surface_id = mouths.id + 1
+        subdomains += [*patches, mouths]
+        boundary_conditions += [
+            F.FixedConcentrationBC(
+                subdomain=p, value=value, species=species_of[p.grain_id]
+            )
+            for p in patches
+        ]
+        boundary_conditions.append(
+            F.FixedConcentrationBC(subdomain=mouths, value=value, species=c_gb)
+        )
 
     model = F.HydrogenTransportProblemDiscontinuous(
         mesh=F.Mesh(micro.mesh),
         subdomains=subdomains,
-        species=system.species,
+        species=[*grain_species, c_gb],
         sources=sources,
         boundary_conditions=boundary_conditions,
         temperature=T,
@@ -142,13 +165,15 @@ def cell_problem(micro, D_gb, bcs):
     )
     model.initialise()
     fm.fem.tune_direct_solver(model)
-    return CellProblem(model, system, tensors, D_gb, k)
+    return CellProblem(
+        model, grains, grain_species, network, c_gb, tensors, D_gb, width, k
+    )
 
 
 def area_density(cp, micro):
     """The network area per unit volume ``S_v`` of the meshed network."""
     dim = micro.mesh.geometry.dim
-    return fm.exports.measures.submesh_measure(cp.system.network) / B**dim
+    return fm.exports.measures.submesh_measure(cp.network) / B**dim
 
 
 def run(cp, axis, S_v, ratio, f_gb) -> dict[str, float | str]:
@@ -157,13 +182,12 @@ def run(cp, axis, S_v, ratio, f_gb) -> dict[str, float | str]:
     k = 2.0 * cp.D_gb / delta
     cp.solve(delta, k)
     # their Eq. 21: volume-averaged flux
-    system = cp.system
     q, _, _ = fm.exports.averages.averages(
-        system.grains,
-        system.grain_species,
+        cp.grains,
+        cp.grain_species,
         cp.tensors,
-        system.network,
-        system.c_gb,
+        cp.network,
+        cp.c_gb,
         delta,
         cp.D_gb,
     )
@@ -175,7 +199,7 @@ def run(cp, axis, S_v, ratio, f_gb) -> dict[str, float | str]:
         S_v_per_nm=S_v * 1e-9,
         k_m_per_s=k,
         equilibration_length_nm=equilibration_length * 1e9,
-        n_grains=len(system.grains),
+        n_grains=len(cp.grains),
         ratio=ratio,
         D_m=D_m(T),
         D_eff=D_eff,

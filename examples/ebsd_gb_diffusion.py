@@ -24,6 +24,8 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "results" / Path(__file__).stem
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 HERE = Path(__file__).resolve().parent
+NETWORK_ID = 1_000_000  # above every grain id
+SURFACE_ID_0 = 2_000_000  # the per-grain surface patches are numbered from here
 
 # Simulation parameters
 base = HERE / "results" / "ebsd_ctf_to_mesh" / "poly"
@@ -46,24 +48,38 @@ LX, LY = micro.extent
 T = 500.0  # with E_D = 0 on both phases, nothing depends on it
 
 D_lattice, _ = fm.crystal_diffusivity_field(micro, D_B)
+grains = fm.grain_subdomains(micro, F.Material(D=D_lattice))
 # One material for every boundary, or a diffusivity per measured boundary from
 # its disorientation; the network builds that field on its submesh.
-system = fm.GrainBoundarySystem(
-    micro,
-    F.Material(D=D_lattice),
-    None if theta_dependent_D else F.Material(D_0=D_GB, E_D=0.0),
-    width=delta,
-    diffusivity_by_entity=(
-        np.where(micro.theta >= theta_c, D_GB, D_B) if theta_dependent_D else None
-    ),
+if theta_dependent_D:
+    network = fm.grain_boundary_network(
+        NETWORK_ID,
+        micro,
+        None,
+        diffusivity_by_entity=np.where(micro.theta >= theta_c, D_GB, D_B),
+    )
+else:
+    network = fm.grain_boundary_network(
+        NETWORK_ID, micro, F.Material(D_0=D_GB, E_D=0.0)
+    )
+grain_species = [F.Species(f"c_{g.id}", subdomains=[g]) for g in grains]
+c_gb = F.Species("c_gb", subdomains=[network])
+species_of = dict(zip((g.id for g in grains), grain_species, strict=True))
+sources, flux_bcs = fm.exchange(grain_species, c_gb, network, width=delta, k=k_exchange)
+# The charged surface is the top edge of the map.
+patches, mouths = fm.grain_surfaces(
+    mesh, grains, lambda x: np.isclose(x[1], LY), SURFACE_ID_0
 )
-sources, flux_bcs = system.exchange(k_exchange)
-surfaces, surface_bcs = system.fixed_concentration(lambda x: np.isclose(x[1], LY), c0)
+surface_bcs = [
+    F.FixedConcentrationBC(subdomain=p, value=c0, species=species_of[p.grain_id])
+    for p in patches
+]
+surface_bcs.append(F.FixedConcentrationBC(subdomain=mouths, value=c0, species=c_gb))
 
 model = F.HydrogenTransportProblemDiscontinuous(
     mesh=F.Mesh(mesh),
-    subdomains=[*system.subdomains, *surfaces],
-    species=system.species,
+    subdomains=[*grains, network, *patches, mouths],
+    species=[*grain_species, c_gb],
     sources=sources,
     boundary_conditions=[*flux_bcs, *surface_bcs],
     temperature=T,
@@ -74,16 +90,15 @@ model = F.HydrogenTransportProblemDiscontinuous(
 model.initialise()
 fm.fem.tune_direct_solver(model)
 model.run()
-network = system.network
 fm.exports.averages.write_vtx(
-    system.grains,
-    system.grain_species,
+    grains,
+    grain_species,
     network,
-    system.c_gb,
+    c_gb,
     OUTPUT_DIR / "ebsd",
     time=t_end,
 )
-cgb = system.c_gb.subdomain_to_post_processing_solution[network]
+cgb = c_gb.subdomain_to_post_processing_solution[network]
 
 # Inspect the mesh and boundary network
 print(micro.report())
@@ -106,7 +121,7 @@ depth = micro.junction_only_below(LY)
 gb_y = cgb.function_space.tabulate_dof_coordinates()[:, 1]
 deep = gb_y < depth
 c_deep = cgb.x.array[deep].max() if deep.any() else 0.0
-total = system.inventory()
+total = fm.exports.averages.inventory(grains, grain_species, network, c_gb, delta)
 print(f"\n  inventory                      : {total:.4e}")
 # Le Claire's type-B parameter.
 beta = delta * (D_GB / D_B - 1) / (2 * np.sqrt(D_B * t_end))
@@ -116,7 +131,7 @@ resistance = (2.0 / k_exchange) / (grain_size / D_B)
 print(f"  interface / lattice resistance : {resistance:.1e}  (Fisher is the 0 limit)")
 
 c_grain_deep = fm.exports.averages.lattice_mean_below(
-    system.grains, system.grain_species, axis=1, depth=depth
+    grains, grain_species, axis=1, depth=depth
 )
 print("\njunction transport: no boundary touching the charged edge reaches below")
 print(f"y = {depth:.4g}, so everything the network holds there has")

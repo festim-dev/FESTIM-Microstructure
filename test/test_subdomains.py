@@ -128,24 +128,36 @@ def test_grain_surfaces_assign_facets_in_one_lookup(dim):
 
 
 @pytest.mark.fenics
-def test_grain_boundary_system_reserves_ids_for_each_surface():
+def test_grain_subdomains_take_one_material_or_one_per_grain():
+    import festim as F
+
+    import festim_microstructure as fm
+
+    micro = _layered_polycrystal(2)
+    shared = F.Material(D_0=1.0, E_D=0.0)
+    assert all(g.material is shared for g in fm.grain_subdomains(micro, shared))
+    by_grain = {g: F.Material(D_0=float(g), E_D=0.0) for g in (2, 7, 11)}
+    grains = fm.grain_subdomains(micro, by_grain.__getitem__)
+    assert [g.material for g in grains] == [by_grain[g.id] for g in grains]
+
+
+@pytest.mark.fenics
+def test_exchange_pairs_every_grain_species_with_the_network():
     import festim as F
 
     import festim_microstructure as fm
 
     micro = _layered_polycrystal(2)
     material = F.Material(D_0=1.0, E_D=0.0)
-    system = fm.GrainBoundarySystem(
-        micro, material, material, width=1e-3, reserved_ids=[1, 4, 15]
-    )
-    assert system.network.id == 3
-
-    def top(x):
-        return np.isclose(x[1], 1)
-
-    surfaces, bcs = system.fixed_concentration(top, 1.0, include_mouths=False)
-    assert [s.id for s in surfaces] == [18]
-    assert bcs[0].species is system.grain_species[-1]
-    surfaces, bcs = system.fixed_concentration(lambda x: np.isclose(x[1], 0), 0.0)
-    assert [s.id for s in surfaces] == [20, 23]
-    assert [bc.species for bc in bcs] == [system.grain_species[0], system.c_gb]
+    grains = fm.grain_subdomains(micro, material)
+    network = fm.grain_boundary_network(20, micro, material)
+    species = [F.Species(f"c_{g.id}", subdomains=[g]) for g in grains]
+    c_gb = F.Species("c_gb", subdomains=[network])
+    sources, flux_bcs = fm.exchange(species, c_gb, network, width=0.5, k=2.0)
+    assert [s.species for s in sources] == [c_gb] * len(grains)
+    assert [bc.species for bc in flux_bcs] == species
+    assert all(bc.subdomain is network for bc in flux_bcs)
+    with pytest.raises(TypeError, match="exactly one"):
+        fm.exchange(species, c_gb, network, width=0.5)
+    with pytest.raises(TypeError, match="exactly one"):
+        fm.exchange(species, c_gb, network, width=0.5, k=2.0, flux=lambda a, b: a)
