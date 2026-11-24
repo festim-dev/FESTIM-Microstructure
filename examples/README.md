@@ -5,8 +5,10 @@ reproductions. They are intentionally not included in the installed
 `festim_microstructure` API: their defaults, outputs, figures, and input data
 belong to a particular study rather than being stable library contracts.
 
-The grain-boundary examples use `fm.GrainBoundarySystem` to build subdomains,
-species, and exchange terms. Each script assembles and runs its FESTIM problem.
+The grain-boundary examples take their subdomains from `fm.grain_subdomains`,
+`fm.grain_boundary_network` and `fm.grain_surfaces`, and their grain-to-network
+exchange terms from `fm.exchange`. Species, boundary conditions and the problem
+itself are FESTIM declarations in each script.
 `gb_homogenisation.py` contains the complete RVE study and shares one
 cell-problem declaration across identification and validation.
 

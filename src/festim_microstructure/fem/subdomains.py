@@ -11,9 +11,9 @@ that crosses several independently solved grains has to be split into one
 single volume subdomain.
 
 The three factory functions at the end build these from a
-:class:`~festim_microstructure.microstructure.MeshedMicrostructure`.
-:class:`~festim_microstructure.fem.GrainBoundarySystem` supplies common transport
-declarations for a :class:`festim.HydrogenTransportProblemDiscontinuous`.
+:class:`~festim_microstructure.microstructure.MeshedMicrostructure`. Species,
+reactions and boundary conditions on them are FESTIM declarations, and
+:func:`~festim_microstructure.fem.exchange` supplies the grain-to-network terms.
 """
 
 import dolfinx
@@ -304,15 +304,22 @@ def _exterior_facets_by_grain(mesh, tags, locator):
 
 
 def grain_subdomains(micro, material):
-    """One :class:`Grain` per tagged grain of ``micro``, all sharing ``material``.
+    """One :class:`Grain` per tagged grain of ``micro``.
 
-    The usual material is ``festim.Material(D=field)`` with the field from
+    ``material`` is one :class:`festim.Material` shared by every grain, or a
+    callable ``material(grain_id)`` returning each grain's own, for example to
+    give the phases of a multi-phase map different solubilities. The usual
+    shared material is ``festim.Material(D=field)`` with the field from
     :func:`~festim_microstructure.materials.crystal_diffusivity_field`, so that
     each grain reads its own tensor from the one parent-mesh coefficient.
     """
+    if callable(material) and not isinstance(material, F.Material):
+        materials = [material(int(g)) for g in micro.grain_ids]
+    else:
+        materials = [material] * len(micro.grain_ids)
     return [
-        Grain(id=int(g), material=material, cell_tags=micro.cell_tags)
-        for g in micro.grain_ids
+        Grain(id=int(g), material=m, cell_tags=micro.cell_tags)
+        for g, m in zip(micro.grain_ids, materials, strict=True)
     ]
 
 

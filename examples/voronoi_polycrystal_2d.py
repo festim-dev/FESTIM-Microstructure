@@ -7,8 +7,8 @@ continuous field lives on it and hydrogen crosses from one boundary to another w
 junction condition to write. The grains each carry a lattice field of their own and
 exchange with that network at the rate ``k``.
 
-The grain-boundary system builds the subdomains, species and exchange terms.
-The example assembles and solves a FESTIM transport problem with those objects.
+The package supplies the grain and network subdomains and the exchange terms;
+species, boundary conditions and the problem itself are FESTIM declarations.
 
 Run::
 
@@ -39,6 +39,8 @@ k_exchange = 3.0  # bulk <-> grain-boundary exchange, m/s
 c0 = 5.6e27  # surface concentration
 t_end = 1.0
 dt = 1e-3
+NETWORK_ID = 1_000_000  # above every grain id
+SURFACE_ID_0 = 2_000_000  # the per-grain surface patches are numbered from here
 
 # Diffusivities at the simulation temperature
 D0_GB = 1.5 * D0_B  # 2D vs 3D random-walk prefactor
@@ -84,21 +86,32 @@ def grain_network_problem(D_gb):
     # grain) and an ordinary FESTIM material for the boundaries. E_D = 0 on
     # both, since the Arrhenius factor is already in D_B and D_GB.
     D_lattice, _ = fm.crystal_diffusivity_field(micro, D_B)
-    system = fm.GrainBoundarySystem(
-        micro,
-        F.Material(D=D_lattice),
-        F.Material(D_0=D_gb, E_D=0.0),
-        width=delta,
+    grains = fm.grain_subdomains(micro, F.Material(D=D_lattice))
+    network = fm.grain_boundary_network(
+        NETWORK_ID, micro, F.Material(D_0=D_gb, E_D=0.0)
     )
-    sources, flux_bcs = system.exchange(k_exchange)
-    surfaces, surface_bcs = system.fixed_concentration(
-        lambda x: np.isclose(x[1], L), c0
+    grain_species = [F.Species(f"c_{g.id}", subdomains=[g]) for g in grains]
+    c_gb = F.Species("c_gb", subdomains=[network])
+    species_of = dict(zip((g.id for g in grains), grain_species, strict=True))
+    sources, flux_bcs = fm.exchange(
+        grain_species, c_gb, network, width=delta, k=k_exchange
+    )
+    # The charged edge: the patch each grain owns, and the network's mouths.
+    patches, mouths = fm.grain_surfaces(
+        mesh, grains, lambda x: np.isclose(x[1], L), SURFACE_ID_0
+    )
+    surface_bcs = [
+        F.FixedConcentrationBC(subdomain=p, value=c0, species=species_of[p.grain_id])
+        for p in patches
+    ]
+    surface_bcs.append(
+        F.FixedConcentrationBC(subdomain=mouths, value=c0, species=c_gb)
     )
 
     model = F.HydrogenTransportProblemDiscontinuous(
         mesh=F.Mesh(mesh),
-        subdomains=[*system.subdomains, *surfaces],
-        species=system.species,
+        subdomains=[*grains, network, *patches, mouths],
+        species=[*grain_species, c_gb],
         sources=sources,
         boundary_conditions=[*flux_bcs, *surface_bcs],
         temperature=T,
@@ -108,22 +121,16 @@ def grain_network_problem(D_gb):
     )
     model.initialise()
     fm.tune_direct_solver(model)
-    return model, system
+    return model, grains, grain_species, network, c_gb
 
 
 # Build and solve
-model, system = grain_network_problem(D_GB)
+model, grains, grain_species, network, c_gb = grain_network_problem(D_GB)
 model.run()
-network = system.network
 fm.postprocessing.averages.write_vtx(
-    system.grains,
-    system.grain_species,
-    network,
-    system.c_gb,
-    OUTPUT_DIR / "voronoi",
-    time=t_end,
+    grains, grain_species, network, c_gb, OUTPUT_DIR / "voronoi", time=t_end
 )
-cgb_fast = system.c_gb.subdomain_to_post_processing_solution[network]
+cgb_fast = c_gb.subdomain_to_post_processing_solution[network]
 
 # Inspect the mesh and boundary network
 ridge_length = fm.voronoi.network_measure(boundaries, dim=2)
@@ -152,7 +159,7 @@ print(
 print(f"  interior facets                 : {model.manifold_is_interior(network)}")
 
 # Compare fast boundaries with lattice diffusion
-fast = system.inventory()
+fast = fm.postprocessing.averages.inventory(grains, grain_species, network, c_gb, delta)
 depth = fm.postprocessing.measures.junction_only_below(
     [np.array(boundary) for boundary in boundaries], axis=1, top=L
 )
@@ -162,9 +169,9 @@ c_deep = cgb_fast.x.array[deep].max() if deep.any() else 0.0
 
 # The reference is a second problem with D_gb = D_b: a transient problem
 # cannot be re-run from t = 0 in place.
-reference, reference_system = grain_network_problem(D_B)
+reference, *reference_fields = grain_network_problem(D_B)
 reference.run()
-ref = reference_system.inventory()
+ref = fm.postprocessing.averages.inventory(*reference_fields, delta)
 
 print(
     f"\nafter t = {t_end} (lattice diffusion alone reaches "
@@ -186,7 +193,7 @@ resistance = (2.0 / k_exchange) / (grain_size / D_B)
 print(f"  interface / lattice resistance : {resistance:.1e}  (Fisher is the 0 limit)")
 
 c_grain_deep = fm.postprocessing.averages.lattice_mean_below(
-    system.grains, system.grain_species, axis=1, depth=depth
+    grains, grain_species, axis=1, depth=depth
 )
 print("\njunction transport: no boundary touching the charged surface reaches below")
 print(f"y = {depth:.3e}, so everything the network holds there has crossed")

@@ -1,9 +1,10 @@
 """Microstructures for FESTIM: meshes, tagged subdomains, coefficient fields.
 
 The package creates and interprets polycrystals -- Voronoi and EBSD --
-converts them into FESTIM subdomains and diffusivity fields, and supplies common
-declarations and post-processing for grain-boundary transport. The caller builds
-and runs the transport problem with FESTIM. See ``examples/`` for the pattern.
+converts them into FESTIM subdomains and diffusivity fields, and supplies the
+grain-to-network exchange terms and post-processing for grain-boundary
+transport. FESTIM owns species, reactions, boundary conditions, settings and
+solving. See ``examples/`` for the pattern.
 
 The public API uses ordinary imports and requires the FESTIM/DOLFINx stack.
 """
@@ -22,8 +23,8 @@ from .ebsd import EbsdMicrostructure, EbsdOptions, UpxoMeshOptions, run_ebsd_pip
 from .fem import (
     Grain,
     GrainBoundaryNetwork,
-    GrainBoundarySystem,
     GrainSurface,
+    exchange,
     grain_boundary_network,
     grain_subdomains,
     grain_surfaces,
@@ -49,7 +50,6 @@ __all__ = [
     "EbsdOptions",
     "Grain",
     "GrainBoundaryNetwork",
-    "GrainBoundarySystem",
     "GrainSurface",
     "MeshSizing",
     "MeshedMicrostructure",
@@ -61,6 +61,7 @@ __all__ = [
     "check",
     "crystal_diffusivity_field",
     "ebsd",
+    "exchange",
     "fem",
     "grain_boundary_network",
     "grain_subdomains",

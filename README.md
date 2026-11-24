@@ -20,7 +20,7 @@ import festim_microstructure as fm
 | --- | --- |
 | Microstructure generation | 2D and 3D Voronoi polycrystals via Gmsh |
 | EBSD import | Conversion of EBSD orientation maps into conforming grain meshes |
-| FESTIM declarations | Tagged grains, the codimension-one network, per-grain surface patches, lattice and boundary diffusivity fields, species, and exchange terms |
+| FESTIM subdomains and fields | Tagged grains, the codimension-one network, per-grain surface patches, lattice and boundary diffusivity fields, and the grain-to-network exchange terms |
 | Post-processing | Grain-plus-network inventories and flux averages, network topology checks |
 | Examples | Voronoi and EBSD transport, homogenisation, and paper reproductions. [Runnable examples](examples/README.md) |
 
@@ -28,8 +28,9 @@ The transport model itself is FESTIM's. Every grain is a
 `festim.VolumeSubdomain` with a `festim.Species` of its own, the grain-boundary
 network is one codimension-one `VolumeSubdomain` carrying one species, and each
 grain exchanges with it through one `ParticleFluxBC`/`ParticleSource` pair.
-`GrainBoundarySystem` creates these objects and the caller configures the
-FESTIM problem, reactions, settings, and exports.
+`fm.exchange` builds those pairs, the one coupling FESTIM does not declare
+itself. FESTIM owns species, reactions, boundary conditions, settings, solving
+and standard exports.
 
 ## Requirements
 
@@ -171,7 +172,7 @@ FESTIM-Microstructure/
 │   ├── materials.py            # lattice diffusivity fields
 │   ├── ebsd/                   # measured microstructures
 │   ├── voronoi/                # tessellation and meshing
-│   ├── fem/                    # FESTIM subdomains and transport declarations
+│   ├── fem/                    # FESTIM subdomains and grain-to-network coupling
 │   └── postprocessing/         # measures, averages, and VTX output
 ├── test/
 └── tools/
@@ -184,8 +185,9 @@ Run the examples, tools, `fm-check`, and tests in the installed
 
 ## Usage
 
-Build a tagged microstructure and use its grain-boundary system to supply
-subdomains, species, and exchange terms to FESTIM.
+The package supplies subdomains, coefficient fields and the grain-to-network
+exchange terms. Species, boundary conditions, traps, reactions, settings and
+the problem itself are declared with FESTIM.
 
 ```python
 import festim as F
@@ -195,39 +197,75 @@ import festim_microstructure as fm
 
 micro = fm.VoronoiMicrostructure.create(size=100e-6, n_seeds=64)
 y_top = micro.size
+NETWORK_ID, SURFACE_ID_0 = 1_000_000, 2_000_000  # above every grain id
+delta = 1e-9  # grain-boundary slab width, m
 
+# Subdomains and coefficient fields from the package.
 D_lattice, _ = fm.crystal_diffusivity_field(micro, D_bulk=1e-11)
-system = fm.GrainBoundarySystem(
-    micro,
-    F.Material(D=D_lattice),
-    F.Material(D_0=2.85e-7, E_D=0.12),
-    width=1e-9,
+grains = fm.grain_subdomains(micro, F.Material(D=D_lattice))
+network = fm.grain_boundary_network(
+    NETWORK_ID, micro, F.Material(D_0=2.85e-7, E_D=0.12)
 )
-sources, flux_bcs = system.exchange(k=3.0)
-surfaces, surface_bcs = system.fixed_concentration(
-    lambda x: np.isclose(x[1], y_top), value=1.0
+
+# Species from FESTIM: one lattice species per grain and one on the network.
+H = {g.id: F.Species(f"H_{g.id}", subdomains=[g]) for g in grains}
+H_gb = F.Species("H_gb", subdomains=[network])
+
+# Exchange k (c_grain - c_gb) through one ParticleFluxBC/ParticleSource pair
+# per grain; the network side is per unit slab width.
+sources, bcs = fm.exchange(H.values(), H_gb, network, width=delta, k=3.0)
+
+# A charged surface: the patch each grain owns and the network's mouths on it.
+patches, mouths = fm.grain_surfaces(
+    micro.mesh, grains, lambda x: np.isclose(x[1], y_top), SURFACE_ID_0
 )
+bcs += [
+    F.FixedConcentrationBC(subdomain=p, value=1.0, species=H[p.grain_id])
+    for p in patches
+]
+bcs.append(F.FixedConcentrationBC(subdomain=mouths, value=1.0, species=H_gb))
 
 model = F.HydrogenTransportProblemDiscontinuous(
     mesh=F.Mesh(micro.mesh),
-    subdomains=[*system.subdomains, *surfaces],
-    species=system.species,
+    subdomains=[*grains, network, *patches, mouths],
+    species=[*H.values(), H_gb],
     sources=sources,
-    boundary_conditions=[*flux_bcs, *surface_bcs],
+    boundary_conditions=bcs,
     temperature=600.0,
     settings=F.Settings(atol=1e-25, rtol=1e-10, transient=False),
 )
 model.initialise()
 fm.tune_direct_solver(model)  # MUMPS workspace for many-subdomain problems
 model.run()
-total = system.inventory()
+total = fm.postprocessing.averages.inventory(grains, H.values(), network, H_gb, delta)
 ```
 
-`fixed_concentration` charges the grain patches and the network mouths on
-the selected surface. Pass `include_mouths=False` to charge only the grains
-on a surface. Call it once per surface when applying different concentrations.
-Use `reserved_ids` when combining the system with other FESTIM subdomains
-or interfaces.
+Any FESTIM boundary condition goes on a patch the same way, with
+`species=H[p.grain_id]`; leave out `mouths` to charge only the grains. Number a
+second surface from `mouths.id + 1`. `NETWORK_ID` must differ from every volume
+*and* surface id, because FESTIM stores a manifold in the facet tags. Pass
+`flux=lambda c_g, c_n: ...` to `fm.exchange` in place of `k` for another
+exchange law, and call it once per species pair for several isotopes.
+
+Traps and reactions are FESTIM declarations on each grain. Add them before
+`model.initialise()`, for example:
+
+```python
+trapped = {g.id: F.Species(f"T_{g.id}", mobile=False, subdomains=[g]) for g in grains}
+model.species += list(trapped.values())
+model.reactions = [
+    F.Reaction(
+        reactant=[H[g.id], F.ImplicitSpecies(n=1e25, others=[trapped[g.id]])],
+        product=[trapped[g.id]],
+        k_0=1e-17,
+        E_k=0.12,
+        p_0=1e13,
+        E_p=1.0,
+        volume=g,
+    )
+    for g in grains
+]
+```
 
 For a 3D Voronoi mesh, pass `dim=3` to `create`. Elongate grains with
 `aspect=3, aspect_axis=2` along z. `fm.TaggedMicrostructure` adapts other
@@ -252,10 +290,11 @@ y_top = micro.extent[1]
 
 Use this `micro` and `y_top` in the same transport setup. The path stem of
 the saved files is `micro.base`. To open an earlier mesh, pass its path stem
-to `fm.EbsdMicrostructure.load()`. For tagged
-networks, `diffusivity_by_entity` gives one diffusivity per boundary in
-tag order. See the [EBSD workflow guide](docs/ebsd_workflow.md) for mesh
-settings, saved files, and cache behavior.
+to `fm.EbsdMicrostructure.load()`. For tagged networks, pass
+`diffusivity_by_entity=values` to `fm.grain_boundary_network()` with `None`
+for the material. Supply one diffusivity per boundary in tag order.
+The EBSD workflow guide covers mesh settings, saved files, and cache behavior.
+[EBSD workflow guide](docs/ebsd_workflow.md)
 
 ### Examples
 

@@ -63,6 +63,8 @@ h_gb = 0.05  # mesh size at the boundaries
 h_bulk = 0.15  # mesh size in the grain interiors
 locate_geometrically = False  # use the geometric locator instead of facet tags
 T = 500.0  # with E_D = 0 on both phases, nothing depends on it
+NETWORK_ID = 1_000_000  # above every grain id
+SURFACE_ID_0 = 2_000_000  # the per-grain surface patches are numbered from here
 
 
 class GrainNetworkProblem(F.HydrogenTransportProblemDiscontinuous):
@@ -120,21 +122,32 @@ def create_microstructure(aspect, aspect_axis):
 def grain_network_problem(micro, D_gb):
     """Declare transport with a fixed concentration on the top face."""
     D_lattice, _ = fm.crystal_diffusivity_field(micro, D_B)
-    system = fm.GrainBoundarySystem(
-        micro,
-        F.Material(D=D_lattice),
-        F.Material(D_0=D_gb, E_D=0.0),
-        width=delta,
+    grains = fm.grain_subdomains(micro, F.Material(D=D_lattice))
+    network = fm.grain_boundary_network(
+        NETWORK_ID, micro, F.Material(D_0=D_gb, E_D=0.0)
     )
-    sources, flux_bcs = system.exchange(k_exchange)
-    surfaces, surface_bcs = system.fixed_concentration(
-        lambda x: np.isclose(x[2], L), c0
+    grain_species = [F.Species(f"c_{g.id}", subdomains=[g]) for g in grains]
+    c_gb = F.Species("c_gb", subdomains=[network])
+    species_of = dict(zip((g.id for g in grains), grain_species, strict=True))
+    sources, flux_bcs = fm.exchange(
+        grain_species, c_gb, network, width=delta, k=k_exchange
+    )
+    # The charged face: the patch each grain owns, and the network's rim on it.
+    patches, mouths = fm.grain_surfaces(
+        micro.mesh, grains, lambda x: np.isclose(x[2], L), SURFACE_ID_0
+    )
+    surface_bcs = [
+        F.FixedConcentrationBC(subdomain=p, value=c0, species=species_of[p.grain_id])
+        for p in patches
+    ]
+    surface_bcs.append(
+        F.FixedConcentrationBC(subdomain=mouths, value=c0, species=c_gb)
     )
 
     model = GrainNetworkProblem(
         mesh=F.Mesh(micro.mesh),
-        subdomains=[*system.subdomains, *surfaces],
-        species=system.species,
+        subdomains=[*grains, network, *patches, mouths],
+        species=[*grain_species, c_gb],
         sources=sources,
         boundary_conditions=[*flux_bcs, *surface_bcs],
         temperature=T,
@@ -144,7 +157,7 @@ def grain_network_problem(micro, D_gb):
     )
     model.initialise()
     fm.tune_direct_solver(model)
-    return model, system
+    return model, grains, grain_species, network, c_gb
 
 
 def run_case(name, aspect, aspect_axis, prefix):
@@ -153,10 +166,9 @@ def run_case(name, aspect, aspect_axis, prefix):
     micro = create_microstructure(aspect, aspect_axis)
     mesh, boundaries = micro.mesh, micro.boundaries
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    model, system = grain_network_problem(micro, D_GB)
-    network = system.network
+    model, grains, grain_species, network, c_gb = grain_network_problem(micro, D_GB)
     with fm.postprocessing.averages.vtx_series(
-        system.grains, system.grain_species, network, system.c_gb, OUTPUT_DIR / prefix
+        grains, grain_species, network, c_gb, OUTPUT_DIR / prefix
     ) as write_fields:
         model.field_writer = write_fields
         try:
@@ -164,7 +176,7 @@ def run_case(name, aspect, aspect_axis, prefix):
             model.run()
         finally:
             model.field_writer = None
-    cgb_fast = system.c_gb.subdomain_to_post_processing_solution[network]
+    cgb_fast = c_gb.subdomain_to_post_processing_solution[network]
 
     # Inspect the mesh and boundary network
     topology = fm.voronoi.junctions(boundaries, dim=3)
@@ -194,7 +206,9 @@ def run_case(name, aspect, aspect_axis, prefix):
     print(f"  interior facets                 : {model.manifold_is_interior(network)}")
 
     # Inspect the fast-boundary transport solution
-    fast = system.inventory()
+    fast = fm.postprocessing.averages.inventory(
+        grains, grain_species, network, c_gb, delta
+    )
     depth = fm.postprocessing.measures.junction_only_below(boundaries, axis=2, top=L)
     gb_z = cgb_fast.function_space.tabulate_dof_coordinates()[:, 2]
     deep = gb_z < depth
@@ -226,7 +240,7 @@ def run_case(name, aspect, aspect_axis, prefix):
         return fast
 
     c_grain_deep = fm.postprocessing.averages.lattice_mean_below(
-        system.grains, system.grain_species, axis=2, depth=depth
+        grains, grain_species, axis=2, depth=depth
     )
     print("\njunction transport: no boundary touching the charged face reaches below")
     print(f"z = {depth:.3f}, so everything the network holds there has")

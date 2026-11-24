@@ -70,7 +70,7 @@ def test_fem_is_where_the_fenics_glue_lives():
         for p in fem.glob("*.py")
         if _module_level_imports(p) & {"dolfinx", "festim", "petsc4py"}
     }
-    assert heavy == {"_system.py", "solvers.py", "subdomains.py"}
+    assert heavy == {"coupling.py", "solvers.py", "subdomains.py"}
 
 
 def test_ebsd_implementation_modules_are_private():
