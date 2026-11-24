@@ -1,7 +1,8 @@
 # EBSD workflow
 
 `fm.run_ebsd_pipeline` imports a CTF map through UPXO/DefDAP, meshes the
-grains with UPXO, and checks the mesh and its tags in DOLFINx. Start with
+grains with UPXO, and returns the `EbsdMicrostructure` after checking its mesh
+and tags in DOLFINx. The path stem of the saved files is `micro.base`. Start with
 the [EBSD quick start](../README.md#measured-ebsd-meshes). The
 [UPXO evaluation](upxo_evaluation.md) describes the backend and validation
 results.

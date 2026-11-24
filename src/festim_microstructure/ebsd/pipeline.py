@@ -14,12 +14,15 @@ from .upxo import mesh_ebsd, resolve_python
 __all__ = ["run_ebsd_pipeline"]
 
 
-def run_ebsd_pipeline(options, workdir: str | Path = "results", force=True):
+def run_ebsd_pipeline(
+    options, workdir: str | Path = "results", force=True
+) -> EbsdMicrostructure:
     """Import, mesh, check source geometry/orientations and load FESTIM tags.
 
     Accepted meshes carry their native EBSD archive and SI metadata. Grain and
     boundary tags are checked through the actual DOLFINx importer, and the
     reconstructed FESTIM network is reported alongside geometry diagnostics.
+    The returned microstructure's ``base`` is the path stem of the saved files.
     """
     options.__post_init__()
     if not isinstance(options.mesh, UpxoMeshOptions):
@@ -82,4 +85,4 @@ def run_ebsd_pipeline(options, workdir: str | Path = "results", force=True):
             options.unit,
             unit_name(options.unit),
         )
-    return base
+    return micro

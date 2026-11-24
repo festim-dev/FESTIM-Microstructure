@@ -33,11 +33,10 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
 
     import festim_microstructure as fm
     from festim_microstructure import ebsd
-    from festim_microstructure.ebsd import upxo
+    from festim_microstructure.ebsd import topology, upxo
     from festim_microstructure.ebsd.archive import read_ebsd, read_extent
     from festim_microstructure.ebsd.options import Settings, settings_from_provenance
     from festim_microstructure.ebsd.orientation import euler_bunge_to_quat
-    from festim_microstructure.msh4 import read_mesh
 
     executable = upxo.resolve_python(required=False)
     if executable is None:
@@ -64,13 +63,33 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
     ctf = ctf_writer(tmp_path / "map.ctf", orientations, spacing=(0.5, 0.75))
     options = ebsd.EbsdOptions(
         unit=1e-6,
+        theta_min=4.0,
         check_images=False,
         python=executable,
         timeout=120.0,
         import_settings=Settings(ctf=str(ctf), min_pixels=1, crop=(0, 8, 0, 9)),
         mesh=ebsd.UpxoMeshOptions(smoothing="none"),
     )
-    base = fm.run_ebsd_pipeline(options, workdir=tmp_path, force=False)
+    read_mesh = topology.read_mesh
+    reads = []
+
+    def track_read(*args, **kwargs):
+        mesh_data = read_mesh(*args, **kwargs)
+        reads.append(mesh_data)
+        return mesh_data
+
+    with monkeypatch.context() as context:
+        context.setattr(topology, "read_mesh", track_read)
+        micro = fm.run_ebsd_pipeline(options, workdir=tmp_path, force=False)
+
+    [(mesh, cells, facets)] = reads
+    assert micro.mesh is mesh
+    assert micro.cell_tags is cells
+    assert micro.facet_tags is facets
+    assert isinstance(micro, fm.EbsdMicrostructure)
+    assert micro.theta_min == options.theta_min
+    base = micro.base
+    assert base == tmp_path / options.stem
     assert {mode for mode, _ in worker_calls} == {
         "--health",
         "--environment",
@@ -83,7 +102,6 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
     assert Path(f"{base}-festim.json").is_file()
     provenance = base.with_name(f"{base.name}-import-provenance.json")
     assert settings_from_provenance(provenance).crop == (0, 8, 0, 9)
-    mesh, cells, facets = read_mesh(base, gdim=2)
     np.testing.assert_allclose(mesh.geometry.x.max(axis=0), [8e-6, 9e-6, 0])
     np.testing.assert_array_equal(np.unique(cells.values), [1, 2])
     np.testing.assert_array_equal(np.unique(facets.values), [1, 2])
@@ -96,9 +114,6 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
             )
         ),
         atol=1e-6,
-    )
-    micro = ebsd.EbsdMicrostructure.from_mesh(
-        base, mesh, cells, facets, read_extent(base)
     )
     assert micro.n_grains == 2
     assert micro.triple_junctions == 0
@@ -120,9 +135,6 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
     loaded = fm.EbsdMicrostructure.load(base, theta_min=0.0, comm=mesh.comm)
     assert isinstance(loaded, fm.MeshedMicrostructure)
     assert isinstance(loaded, fm.BoundaryTopology)
-    assert (
-        micro.mesh is mesh and micro.cell_tags is cells and micro.facet_tags is facets
-    )
     np.testing.assert_array_equal(loaded.grain_ids, [1, 2])
     np.testing.assert_array_equal(loaded.cell_tags.values, cells.values)
     np.testing.assert_array_equal(loaded.facet_tags.values, facets.values)
@@ -183,7 +195,8 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
         context.setattr(upxo.subprocess, "run", unexpected_worker)
         options.check_images = True
         options.timeout = 150.0
-        assert fm.run_ebsd_pipeline(options, workdir=tmp_path, force=False) == base
+        cached = fm.run_ebsd_pipeline(options, workdir=tmp_path, force=False)
+        assert cached.base == base
     assert base.with_suffix(".msh4").read_bytes() == original
     assert {path.name for path in tmp_path.glob("*.png")} == {
         f"{base.name}-{suffix}.png"
@@ -199,9 +212,9 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
 
     options.check_images = False
     options.unit = 1e-3
-    ebsd.run_ebsd_pipeline(options, workdir=tmp_path, force=False)
-    scaled, _, _ = read_mesh(base, gdim=2)
-    np.testing.assert_allclose(scaled.geometry.x.max(axis=0), [8e-3, 9e-3, 0])
+    scaled = ebsd.run_ebsd_pipeline(options, workdir=tmp_path, force=False)
+    assert scaled.base == base
+    np.testing.assert_allclose(scaled.mesh.geometry.x.max(axis=0), [8e-3, 9e-3, 0])
     np.testing.assert_allclose(read_extent(base), [8e-3, 9e-3])
     assert not list(tmp_path.glob("*.tesr"))
     assert not list(tmp_path.glob("*.sttesr"))
@@ -238,8 +251,7 @@ def test_ctf_transport_conserves_inventory_and_exchanges_with_boundary(
         import_settings=Settings(ctf=str(ctf), min_pixels=1),
         mesh=ebsd.UpxoMeshOptions(smoothing=smoothing),
     )
-    base = fm.run_ebsd_pipeline(options, workdir=tmp_path)
-    micro = fm.EbsdMicrostructure.load(base)
+    micro = fm.run_ebsd_pipeline(options, workdir=tmp_path)
     delta = 1e-7
     k = dolfinx.fem.Constant(micro.mesh, dolfinx.default_scalar_type(0.0))
     width = dolfinx.fem.Constant(micro.mesh, dolfinx.default_scalar_type(2 * delta))

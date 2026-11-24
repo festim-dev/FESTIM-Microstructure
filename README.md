@@ -275,13 +275,13 @@ options = fm.EbsdOptions(
         crop=(0, 306, 0, 306),
     ),
 )
-base = fm.run_ebsd_pipeline(options, workdir="results", force=False)
-micro = fm.EbsdMicrostructure.load(base, theta_min=options.theta_min)
+micro = fm.run_ebsd_pipeline(options, workdir="results", force=False)
 y_top = micro.extent[1]
 ```
 
-Use this `micro` and `y_top` in the same transport setup. To load an
-already prepared mesh, pass its path stem directly to `load`. For tagged
+Use this `micro` and `y_top` in the same transport setup. The path stem of
+the saved files is `micro.base`. To open an earlier mesh, pass its path stem
+to `fm.EbsdMicrostructure.load()`. For tagged
 networks, `diffusivity_by_entity` gives one diffusivity per boundary in
 tag order. See the [EBSD workflow guide](docs/ebsd_workflow.md) for mesh
 settings, saved files, and cache behavior.
