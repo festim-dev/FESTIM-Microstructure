@@ -75,7 +75,7 @@ model.initialise()
 fm.fem.tune_direct_solver(model)
 model.run()
 network = system.network
-fm.exports.averages.write_vtx(
+fm.postprocessing.averages.write_vtx(
     system.grains,
     system.grain_species,
     network,
@@ -88,7 +88,7 @@ cgb = system.c_gb.subdomain_to_post_processing_solution[network]
 # Inspect the mesh and boundary network
 print(micro.report())
 len_mesh, len_tess = (
-    fm.exports.measures.submesh_measure(network),
+    fm.postprocessing.measures.submesh_measure(network),
     micro.network_measure,
 )
 n_tri = mesh.topology.index_map(2).size_global
@@ -97,7 +97,7 @@ print(f"  grains (tagged pieces)          : {micro.n_grains}")
 print(f"  network captured by the submesh : {100 * len_mesh / len_tess:.2f} %")
 print(
     f"  connected components            : "
-    f"{fm.exports.measures.component_count(network)}"
+    f"{fm.postprocessing.measures.component_count(network)}"
 )
 print(f"  interior facets                 : {model.manifold_is_interior(network)}")
 
@@ -115,7 +115,7 @@ grain_size = np.sqrt(LX * LY / micro.n_grains)
 resistance = (2.0 / k_exchange) / (grain_size / D_B)
 print(f"  interface / lattice resistance : {resistance:.1e}  (Fisher is the 0 limit)")
 
-c_grain_deep = fm.exports.averages.lattice_mean_below(
+c_grain_deep = fm.postprocessing.averages.lattice_mean_below(
     system.grains, system.grain_species, axis=1, depth=depth
 )
 print("\njunction transport: no boundary touching the charged edge reaches below")

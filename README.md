@@ -196,7 +196,7 @@ FESTIM-Microstructure/
 │   │   ├── _system.py          # common FESTIM transport declarations
 │   │   ├── solvers.py          # tune_direct_solver: the MUMPS workspace workaround
 │   │   └── subdomains.py       # Grain, GrainBoundaryNetwork, GrainSurface + factories
-│   └── exports/
+│   └── postprocessing/
 │       ├── measures.py         # submesh measures and network topology checks
 │       └── averages.py         # grain+network averages, inventory, fields, VTX output
 ├── examples/                   # runnable workflows; not part of the library API

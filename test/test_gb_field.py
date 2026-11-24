@@ -121,5 +121,7 @@ def test_diffusivity_by_entity_follows_the_tags():
 
     fm.fem.solvers.tune_direct_solver(model)
     model.run()
-    total = fm.exports.averages.inventory(grains, grain_species, network, c_gb, 1e-3)
+    total = fm.postprocessing.averages.inventory(
+        grains, grain_species, network, c_gb, 1e-3
+    )
     assert np.isfinite(total) and total > 0

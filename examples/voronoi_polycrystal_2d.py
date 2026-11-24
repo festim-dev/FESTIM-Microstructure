@@ -115,7 +115,7 @@ def grain_network_problem(D_gb):
 model, system = grain_network_problem(D_GB)
 model.run()
 network = system.network
-fm.exports.averages.write_vtx(
+fm.postprocessing.averages.write_vtx(
     system.grains,
     system.grain_species,
     network,
@@ -127,7 +127,7 @@ cgb_fast = system.c_gb.subdomain_to_post_processing_solution[network]
 
 # Inspect the mesh and boundary network
 ridge_length = fm.voronoi.network_measure(boundaries, dim=2)
-facet_length = fm.exports.measures.submesh_measure(network)
+facet_length = fm.postprocessing.measures.submesh_measure(network)
 print(
     f"microstructure: {n_seeds} seeds, {n_grains} grains, "
     f"{len(boundaries)} boundary segments"
@@ -138,7 +138,10 @@ print(
     "connected components (ridges): "
     f"{fm.voronoi.connected_components(boundaries, dim=2, size=L)}"
 )
-print(f"connected components (submesh): {fm.exports.measures.component_count(network)}")
+print(
+    "connected components (submesh): "
+    f"{fm.postprocessing.measures.component_count(network)}"
+)
 print(f"  facets dropped on the outer box : {network.n_dropped}")
 n_cells = mesh.topology.index_map(2).size_global
 print(f"  mesh                            : {n_cells} cells")
@@ -150,7 +153,7 @@ print(f"  interior facets                 : {model.manifold_is_interior(network)
 
 # Compare fast boundaries with lattice diffusion
 fast = system.inventory()
-depth = fm.exports.measures.junction_only_below(
+depth = fm.postprocessing.measures.junction_only_below(
     [np.array(boundary) for boundary in boundaries], axis=1, top=L
 )
 gb_y = cgb_fast.function_space.tabulate_dof_coordinates()[:, 1]
@@ -182,7 +185,7 @@ grain_size = L / np.sqrt(n_grains)
 resistance = (2.0 / k_exchange) / (grain_size / D_B)
 print(f"  interface / lattice resistance : {resistance:.1e}  (Fisher is the 0 limit)")
 
-c_grain_deep = fm.exports.averages.lattice_mean_below(
+c_grain_deep = fm.postprocessing.averages.lattice_mean_below(
     system.grains, system.grain_species, axis=1, depth=depth
 )
 print("\njunction transport: no boundary touching the charged surface reaches below")

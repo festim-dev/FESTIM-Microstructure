@@ -155,7 +155,7 @@ def run_case(name, aspect, aspect_axis, prefix):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     model, system = grain_network_problem(micro, D_GB)
     network = system.network
-    with fm.exports.averages.vtx_series(
+    with fm.postprocessing.averages.vtx_series(
         system.grains, system.grain_species, network, system.c_gb, OUTPUT_DIR / prefix
     ) as write_fields:
         model.field_writer = write_fields
@@ -169,7 +169,7 @@ def run_case(name, aspect, aspect_axis, prefix):
     # Inspect the mesh and boundary network
     topology = fm.voronoi.junctions(boundaries, dim=3)
     face_area = fm.voronoi.network_measure(boundaries, dim=3)
-    sub_area = fm.exports.measures.submesh_measure(network)
+    sub_area = fm.postprocessing.measures.submesh_measure(network)
     print(f"microstructure: {n_seeds} seeds, {len(boundaries)} boundary polygons")
     print(
         f"  triple lines                    : {len(topology.lines)} "
@@ -182,7 +182,7 @@ def run_case(name, aspect, aspect_axis, prefix):
     )
     print(
         f"  connected components (submesh)  : "
-        f"{fm.exports.measures.component_count(network)}"
+        f"{fm.postprocessing.measures.component_count(network)}"
     )
     n_cells = mesh.topology.index_map(3).size_global
     print(f"  mesh                            : {n_cells} cells")
@@ -195,7 +195,7 @@ def run_case(name, aspect, aspect_axis, prefix):
 
     # Inspect the fast-boundary transport solution
     fast = system.inventory()
-    depth = fm.exports.measures.junction_only_below(boundaries, axis=2, top=L)
+    depth = fm.postprocessing.measures.junction_only_below(boundaries, axis=2, top=L)
     gb_z = cgb_fast.function_space.tabulate_dof_coordinates()[:, 2]
     deep = gb_z < depth
     c_deep = cgb_fast.x.array[deep].max() if deep.any() else 0.0
@@ -225,7 +225,7 @@ def run_case(name, aspect, aspect_axis, prefix):
         )
         return fast
 
-    c_grain_deep = fm.exports.averages.lattice_mean_below(
+    c_grain_deep = fm.postprocessing.averages.lattice_mean_below(
         system.grains, system.grain_species, axis=2, depth=depth
     )
     print("\njunction transport: no boundary touching the charged face reaches below")

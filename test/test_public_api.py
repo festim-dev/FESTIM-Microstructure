@@ -12,7 +12,7 @@ PACKAGES = [
     "festim_microstructure",
     "festim_microstructure.fem",
     "festim_microstructure.ebsd",
-    "festim_microstructure.exports",
+    "festim_microstructure.postprocessing",
     "festim_microstructure.voronoi",
 ]
 

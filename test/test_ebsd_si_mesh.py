@@ -236,7 +236,7 @@ def test_ctf_transport_conserves_inventory_and_exchanges_with_boundary(
     from festim_microstructure import ebsd
     from festim_microstructure.ebsd import upxo
     from festim_microstructure.ebsd.options import Settings
-    from festim_microstructure.exports.averages import inventory, solutions
+    from festim_microstructure.postprocessing.averages import inventory, solutions
 
     if upxo.resolve_python(required=False) is None:
         pytest.skip("UPXO interpreter unavailable")

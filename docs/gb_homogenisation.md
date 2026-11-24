@@ -9,7 +9,7 @@ A workflow in three steps:
    problem is declared with FESTIM directly (`cell_problem()` in
    `examples/gb_homogenisation.py`); the package supplies the tagged subdomains
    (`src/festim_microstructure/fem/subdomains.py`), the lattice tensor field
-   (`materials.py`) and the averages (`exports/averages.py`).
+   (`materials.py`) and the averages (`postprocessing/averages.py`).
 3. **Identify an anisotropic `D_eff`** for a homogeneous model, and then check
    that it predicts things it was not fitted to (`examples/gb_homogenisation.py`).
 

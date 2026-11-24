@@ -6,7 +6,7 @@ import dolfinx
 import festim as F
 import numpy as np
 
-from festim_microstructure.exports.averages import inventory
+from festim_microstructure.postprocessing.averages import inventory
 
 from .subdomains import grain_boundary_network, grain_subdomains, grain_surfaces
 

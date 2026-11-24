@@ -148,7 +148,7 @@ def cell_problem(micro, D_gb, bcs):
 def area_density(cp, micro):
     """The network area per unit volume ``S_v`` of the meshed network."""
     dim = micro.mesh.geometry.dim
-    return fm.exports.measures.submesh_measure(cp.system.network) / B**dim
+    return fm.postprocessing.measures.submesh_measure(cp.system.network) / B**dim
 
 
 def run(cp, axis, S_v, ratio, f_gb) -> dict[str, float | str]:
@@ -158,7 +158,7 @@ def run(cp, axis, S_v, ratio, f_gb) -> dict[str, float | str]:
     cp.solve(delta, k)
     # their Eq. 21: volume-averaged flux
     system = cp.system
-    q, _, _ = fm.exports.averages.averages(
+    q, _, _ = fm.postprocessing.averages.averages(
         system.grains,
         system.grain_species,
         cp.tensors,

@@ -11,11 +11,11 @@ The public API uses ordinary imports and requires the FESTIM/DOLFINx stack.
 from . import (
     check,
     ebsd,
-    exports,
     fem,
     materials,
     microstructure,
     msh4,
+    postprocessing,
     voronoi,
 )
 from .ebsd import EbsdMicrostructure, EbsdOptions, UpxoMeshOptions, run_ebsd_pipeline
@@ -60,7 +60,6 @@ __all__ = [
     "check",
     "crystal_diffusivity_field",
     "ebsd",
-    "exports",
     "fem",
     "grain_boundary_network",
     "grain_subdomains",
@@ -68,6 +67,7 @@ __all__ = [
     "materials",
     "microstructure",
     "msh4",
+    "postprocessing",
     "run_ebsd_pipeline",
     "voronoi",
 ]

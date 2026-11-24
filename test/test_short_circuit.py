@@ -108,8 +108,8 @@ def test_fast_boundaries_increase_inventory(micro):
     """Verify fast boundaries increase inventory."""
     import festim as F
 
-    from festim_microstructure.exports.averages import inventory
     from festim_microstructure.fem.solvers import tune_direct_solver
+    from festim_microstructure.postprocessing.averages import inventory
 
     D_b, delta, k = 1e-3, 1e-3, 1.0
     bcs = [(lambda x: np.isclose(x[1], micro.size), 1.0)]
@@ -139,8 +139,11 @@ def test_cell_problem_flux_and_local_equilibrium(micro):
     grain/network mismatch is what the exchange rate says it is."""
     import festim as F
 
-    from festim_microstructure.exports.averages import averages, equilibrium_error
     from festim_microstructure.fem.solvers import tune_direct_solver
+    from festim_microstructure.postprocessing.averages import (
+        averages,
+        equilibrium_error,
+    )
 
     D_b, D_gb, delta, k = 1e-3, 30.0, 1e-3, 1.0
     G = np.array([1.0, 0.0])

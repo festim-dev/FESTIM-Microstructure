@@ -103,7 +103,7 @@ class CellProblem:
     def averages(self, window=None):
         """Flux, gradient and measure, delegated to the package."""
         system = self.system
-        return fm.exports.averages.averages(
+        return fm.postprocessing.averages.averages(
             system.grains,
             system.grain_species,
             self.tensors,
@@ -171,7 +171,7 @@ def hart_bound(cp: CellProblem):
         raise TypeError("this Hart bound requires a 2D VoronoiMicrostructure")
     tensor = fm.voronoi.network_tensor(micro.boundaries, micro.dim)
     return (
-        fm.exports.averages.mean_lattice_tensor(micro, cp.tensors)
+        fm.postprocessing.averages.mean_lattice_tensor(micro, cp.tensors)
         + transport.delta * transport.D_gb / micro.domain_measure * tensor
     )
 
@@ -267,7 +267,7 @@ def identify(
         system = cp.system
         eq_error = max(
             eq_error,
-            fm.exports.averages.equilibrium_error(
+            fm.postprocessing.averages.equilibrium_error(
                 system.grains,
                 system.grain_species,
                 system.network,
@@ -284,7 +284,7 @@ def identify(
         if export_prefix is not None:
             # the grains as one discontinuous parent field (so the jumps show),
             # and the network as a line dataset
-            fm.exports.averages.write_vtx(
+            fm.postprocessing.averages.write_vtx(
                 system.grains,
                 system.grain_species,
                 system.network,
