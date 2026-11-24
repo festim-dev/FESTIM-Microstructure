@@ -34,7 +34,7 @@ from .microstructure import (
     BoundaryTopology,
     MeshedMicrostructure,
     Microstructure,
-    TaggedPolycrystal,
+    TaggedMicrostructure,
 )
 from .voronoi import MeshSizing, VoronoiMicrostructure
 
@@ -54,7 +54,7 @@ __all__ = [
     "MeshSizing",
     "MeshedMicrostructure",
     "Microstructure",
-    "TaggedPolycrystal",
+    "TaggedMicrostructure",
     "UpxoMeshOptions",
     "VoronoiMicrostructure",
     "__version__",

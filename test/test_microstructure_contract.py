@@ -14,7 +14,7 @@ from festim_microstructure.microstructure import (
     MeshedMicrostructure,
     Microstructure,
     PlanarLatticeOrientations,
-    TaggedPolycrystal,
+    TaggedMicrostructure,
 )
 from festim_microstructure.voronoi import VoronoiMicrostructure
 
@@ -83,7 +83,7 @@ def test_missing_members_are_named_rather_than_just_rejected():
 
 
 @pytest.mark.parametrize(
-    "implementation", [VoronoiMicrostructure, EbsdMicrostructure, TaggedPolycrystal]
+    "implementation", [VoronoiMicrostructure, EbsdMicrostructure, TaggedMicrostructure]
 )
 def test_implementation_declares_the_meshed_contract(implementation):
     assert missing_members(implementation, MeshedMicrostructure) == []
@@ -106,9 +106,9 @@ def test_ebsd_boundary_topology_and_optional_capabilities():
     assert missing_members(EbsdMicrostructure, GeometricBoundaryLocator) == ["locator"]
 
 
-def test_tagged_polycrystal_fills_in_the_ids_and_the_orientations():
+def test_tagged_microstructure_fills_in_the_ids_and_the_orientations():
     """Given ids, it needs no mesh to answer: the defaults are derived, not read."""
-    poly = TaggedPolycrystal(
+    poly = TaggedMicrostructure(
         mesh=object(), cell_tags=object(), grain_ids=np.array([1, 2, 5])
     )
     assert poly.n_grains == 3
@@ -118,13 +118,13 @@ def test_tagged_polycrystal_fills_in_the_ids_and_the_orientations():
     assert missing_members(poly, MeshedMicrostructure) == []
 
 
-def test_tagged_polycrystal_says_so_when_it_has_no_geometric_locator():
+def test_tagged_microstructure_says_so_when_it_has_no_geometric_locator():
     """A geometric network requires a configured locator."""
     from types import SimpleNamespace
 
     from festim_microstructure import grain_boundary_network
 
-    poly = TaggedPolycrystal(
+    poly = TaggedMicrostructure(
         mesh=SimpleNamespace(topology=SimpleNamespace(dim=2)),
         cell_tags=object(),
         grain_ids=np.array([1]),
@@ -134,9 +134,9 @@ def test_tagged_polycrystal_says_so_when_it_has_no_geometric_locator():
         grain_boundary_network(2, poly, object())
 
 
-def test_tagged_polycrystal_uses_the_locator_it_was_given():
+def test_tagged_microstructure_uses_the_locator_it_was_given():
     """Verify tagged polycrystal uses the locator it was given."""
-    poly = TaggedPolycrystal(
+    poly = TaggedMicrostructure(
         mesh=object(),
         cell_tags=object(),
         grain_ids=np.array([1]),

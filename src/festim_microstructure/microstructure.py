@@ -8,7 +8,7 @@ called "a microstructure":
   :mod:`~festim_microstructure.fem.subdomains`, the coefficient fields in
   :mod:`~festim_microstructure.materials` and the post-processing in
   :mod:`~festim_microstructure.postprocessing` read. Implemented by the Voronoi and
-  EBSD mesh builders, and by :class:`TaggedPolycrystal` for other tagged meshes.
+  EBSD mesh builders, and by :class:`TaggedMicrostructure` for other tagged meshes.
 * :class:`BoundaryTopology` -- a tessellation topology with a per-entity
   disorientation and masks selecting the boundaries to keep. Implemented by EBSD.
 
@@ -31,7 +31,7 @@ __all__ = [
     "MeshedMicrostructure",
     "Microstructure",
     "PlanarLatticeOrientations",
-    "TaggedPolycrystal",
+    "TaggedMicrostructure",
 ]
 
 
@@ -138,7 +138,7 @@ class BoundaryTopology(Microstructure, Protocol):
 
 
 @dataclass
-class TaggedPolycrystal:
+class TaggedMicrostructure:
     """A :class:`MeshedMicrostructure` made from a mesh and its tags.
 
     Use this adapter for externally generated or hand-built meshes that have

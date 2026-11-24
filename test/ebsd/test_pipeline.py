@@ -147,7 +147,7 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
     assert not hasattr(loaded, "orientations")
     assert not hasattr(loaded, "locator")
 
-    cartesian = fm.TaggedPolycrystal(loaded.mesh, loaded.cell_tags)
+    cartesian = fm.TaggedMicrostructure(loaded.mesh, loaded.cell_tags)
     isotropic, tensors = fm.crystal_diffusivity_field(loaded, 1e-12)
     field, _ = fm.crystal_diffusivity_field(cartesian, 1e-12)
     np.testing.assert_array_equal(isotropic.x.array, field.x.array)

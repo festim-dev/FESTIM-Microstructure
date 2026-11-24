@@ -172,7 +172,7 @@ FESTIM-Microstructure/
 ├── src/festim_microstructure/
 │   ├── __init__.py              # public API with ordinary imports
 │   ├── check.py                # fm-check environment diagnostic
-│   ├── microstructure.py       # microstructure protocols, TaggedPolycrystal
+│   ├── microstructure.py       # microstructure protocols, TaggedMicrostructure
 │   ├── materials.py            # lattice diffusivity tensors and fields
 │   ├── msh4.py                  # generic tagged Gmsh mesh readers
 │   ├── ebsd/                    # CTF import, UPXO meshing, and EBSD topology
@@ -260,7 +260,7 @@ Use `reserved_ids` when combining the system with other FESTIM subdomains
 or interfaces.
 
 For a 3D Voronoi mesh, pass `dim=3` to `create`. Elongate grains with
-`aspect=3, aspect_axis=2` along z. `fm.TaggedPolycrystal` adapts other
+`aspect=3, aspect_axis=2` along z. `fm.TaggedMicrostructure` adapts other
 meshes with grain tags. The model uses metres for mesh coordinates and
 the grain-boundary width.
 

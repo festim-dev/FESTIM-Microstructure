@@ -44,7 +44,7 @@ def test_diffusivity_by_entity_follows_the_tags():
     gb = interior[grain_of[pair[:, 0]] != grain_of[pair[:, 1]]]
     entity = 1 + gb % 3
     facet_tags = dolfinx.mesh.meshtags(mesh, 1, gb, entity.astype(np.int32))
-    poly = fm.TaggedPolycrystal(
+    poly = fm.TaggedMicrostructure(
         mesh=mesh, cell_tags=micro.cell_tags, facet_tags=facet_tags, gb_tag=[1, 2, 3]
     )
     theta = np.array([5.0, 20.0, 40.0])  # entity 1 is low-angle

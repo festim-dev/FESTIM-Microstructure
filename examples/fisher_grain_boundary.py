@@ -79,7 +79,7 @@ D_GB = 1.5 * D0_B * np.exp(-E_M_GB / (F.k_B * T))
 mesh = dolfinx.mesh.create_rectangle(
     MPI.COMM_WORLD, [np.array([-LX, 0.0]), np.array([LX, LY])], [2 * NX, NY]
 )
-micro = fm.TaggedPolycrystal(
+micro = fm.TaggedMicrostructure(
     mesh=mesh,
     cell_tags=two_grains(mesh),
     grain_ids=np.array([LEFT, RIGHT]),
