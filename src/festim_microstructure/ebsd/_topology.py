@@ -13,8 +13,8 @@ import numpy as np
 from festim_microstructure.microstructure import _global_tag_values
 from festim_microstructure.msh4 import read_mesh
 
-from .archive import read_ebsd, read_extent
-from .orientation import cubic_disorientation_angle, qconj, qmul
+from ._archive import read_ebsd, read_extent
+from ._orientation import cubic_disorientation_angle, qconj, qmul
 
 __all__ = ["BoundaryEdges", "EbsdMicrostructure"]
 
@@ -184,7 +184,7 @@ class EbsdMicrostructure:
         if crysym != "cubic":
             raise NotImplementedError(
                 "theta is computed with the closed-form cubic disorientation "
-                f"from orientation.py; crysym = {crysym!r} needs a general "
+                f"in EBSD; crysym = {crysym!r} needs a general "
                 "symmetry-operator search"
             )
         comm = mesh.comm

@@ -74,8 +74,8 @@ Import provenance uses format version 2 and stores crop bounds as a JSON array.
 With `force=False`, unsupported provenance versions trigger a fresh import.
 
 For separate import/inspection, use
-`fm.ebsd.grains.convert(ctf, "grains.npz", ...)` and
-`fm.ebsd.grains.measure_against_ctf(ctf, "grains.npz")`.
+`fm.ebsd.convert(ctf, "grains.npz", ...)` and
+`fm.ebsd.measure_against_ctf(ctf, "grains.npz")`.
 `fm.ebsd.mesh_grains("grains.npz", ...)` meshes an existing native archive.
 `force=False` checks source/settings/code and output hashes before cache reuse.
 A failed meshing worker retains the previous accepted mesh and writes a failure

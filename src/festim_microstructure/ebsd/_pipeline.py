@@ -5,11 +5,11 @@ from pathlib import Path
 
 from mpi4py import MPI
 
-from .grains import convert
-from .mesh_checks import mesh_diagnostics, unit_name, write_network_png
-from .options import UpxoMeshOptions
-from .topology import EbsdMicrostructure
-from .upxo import mesh_grains, resolve_python
+from ._grains import convert
+from ._mesh_checks import mesh_diagnostics, unit_name, write_network_png
+from ._options import UpxoMeshOptions
+from ._topology import EbsdMicrostructure
+from ._upxo import mesh_grains, resolve_python
 
 __all__ = ["run_ebsd_pipeline"]
 

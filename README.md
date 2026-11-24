@@ -176,18 +176,18 @@ FESTIM-Microstructure/
 │   ├── materials.py            # lattice diffusivity tensors and fields
 │   ├── msh4.py                  # generic tagged Gmsh mesh readers
 │   ├── ebsd/                    # CTF import, UPXO meshing, and EBSD topology
-│   │   ├── options.py
-│   │   ├── pipeline.py
-│   │   ├── topology.py
-│   │   ├── orientation.py
-│   │   ├── ctf.py
-│   │   ├── archive.py
-│   │   ├── provenance.py
-│   │   ├── grains.py
-│   │   ├── upxo.py
-│   │   ├── import_checks.py
-│   │   ├── mesh_checks.py
-│   │   └── plotting.py          # diagnostic raster colours and scale bars
+│   │   ├── _options.py
+│   │   ├── _pipeline.py
+│   │   ├── _topology.py
+│   │   ├── _orientation.py
+│   │   ├── _ctf.py
+│   │   ├── _archive.py
+│   │   ├── _provenance.py
+│   │   ├── _grains.py
+│   │   ├── _upxo.py
+│   │   ├── _import_checks.py
+│   │   ├── _mesh_checks.py
+│   │   └── _plotting.py          # diagnostic raster colours and scale bars
 │   ├── voronoi/                 # generated 2D/3D tessellations and Gmsh meshes
 │   │   ├── geometry.py
 │   │   ├── gmsh_builder.py

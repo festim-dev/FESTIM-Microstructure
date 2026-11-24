@@ -5,19 +5,15 @@ import json
 import numpy as np
 import pytest
 
-from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
-from festim_microstructure.ebsd.grains import (
-    MeasureOptions,
-    convert,
-    measure_against_ctf,
-)
-from festim_microstructure.ebsd.orientation import (
+from festim_microstructure.ebsd import MeasureOptions, convert, measure_against_ctf
+from festim_microstructure.ebsd._archive import EbsdData, read_ebsd, write_ebsd
+from festim_microstructure.ebsd._orientation import (
     cubic_disorientation_angle,
     euler_bunge_to_quat,
     qconj,
     qmul,
 )
-from festim_microstructure.ebsd.upxo import resolve_python
+from festim_microstructure.ebsd._upxo import resolve_python
 
 requires_upxo = pytest.mark.skipif(
     resolve_python(required=False) is None, reason="UPXO/DefDAP importer unavailable"
@@ -115,7 +111,7 @@ def test_phase_selection_reordered_rows_and_rectangular_pixels(tmp_path, ctf_wri
 def test_import_cache_invalidates_when_source_changes(
     tmp_path, ctf_writer, monkeypatch
 ):
-    from festim_microstructure.ebsd import upxo
+    from festim_microstructure.ebsd import _upxo as upxo
 
     ctf = ctf_writer(tmp_path / "map.ctf", np.zeros((4, 4, 3)))
     output = tmp_path / "map.npz"
@@ -143,7 +139,7 @@ def test_import_cache_regenerates_unsupported_provenance(
     tmp_path, ctf_writer, monkeypatch
 ):
     """An intact archive cannot keep an unsupported provenance record in use."""
-    from festim_microstructure.ebsd import upxo
+    from festim_microstructure.ebsd import _upxo as upxo
 
     ctf = ctf_writer(tmp_path / "map.ctf", np.zeros((4, 4, 3)))
     output = tmp_path / "map.npz"
@@ -186,7 +182,7 @@ def test_native_archive_retains_voids_components_and_membership(tmp_path):
 def test_import_cache_invalidates_when_worker_environment_changes(
     tmp_path, ctf_writer, monkeypatch
 ):
-    from festim_microstructure.ebsd import upxo
+    from festim_microstructure.ebsd import _upxo as upxo
 
     ctf = ctf_writer(tmp_path / "map.ctf", np.zeros((4, 4, 3)))
     output = tmp_path / "map.npz"
@@ -221,8 +217,8 @@ HEMISPHERE_EULER = np.array(
 
 
 def test_symmetry_mean_is_invariant_to_antipodal_signs():
-    from festim_microstructure.ebsd.orientation import crystal_equivalents
-    from festim_microstructure.ebsd.upxo import _sign_aligned_quaternion_mean
+    from festim_microstructure.ebsd._orientation import crystal_equivalents
+    from festim_microstructure.ebsd._upxo import _sign_aligned_quaternion_mean
 
     pixels = euler_bunge_to_quat(*HEMISPHERE_EULER.T)
     equivalents = crystal_equivalents(pixels).transpose(1, 2, 0)

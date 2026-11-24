@@ -76,9 +76,9 @@ def synthetic_cases():
 
 
 def prepare(output):
-    from festim_microstructure.ebsd.grains import CtfConversion
-    from festim_microstructure.ebsd.options import Settings
-    from festim_microstructure.ebsd.orientation import euler_bunge_to_quat
+    from festim_microstructure.ebsd import Settings
+    from festim_microstructure.ebsd._grains import CtfConversion
+    from festim_microstructure.ebsd._orientation import euler_bunge_to_quat
 
     output.mkdir(parents=True, exist_ok=True)
     inputs = output / "inputs"
@@ -662,7 +662,7 @@ def verify(output):
                 np.testing.assert_allclose(
                     mesh.geometry.x.max(axis=0)[:2], extent, rtol=1e-12, atol=1e-15
                 )
-                from festim_microstructure.ebsd.orientation import (
+                from festim_microstructure.ebsd._orientation import (
                     cubic_disorientation_angle,
                     qconj,
                     qmul,

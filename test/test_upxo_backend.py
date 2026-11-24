@@ -12,10 +12,12 @@ from festim_microstructure.ebsd import (
     Settings,
     UpxoMeshOptions,
     mesh_grains,
-    upxo,
 )
-from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
-from festim_microstructure.ebsd.orientation import euler_bunge_to_quat
+from festim_microstructure.ebsd import (
+    _upxo as upxo,
+)
+from festim_microstructure.ebsd._archive import EbsdData, read_ebsd, write_ebsd
+from festim_microstructure.ebsd._orientation import euler_bunge_to_quat
 
 
 def test_configured_interpreter_does_not_fall_back(monkeypatch):
@@ -272,7 +274,7 @@ def test_environment_probe_errors_are_actionable(monkeypatch, error):
 def test_import_identity_observes_environment_variable_and_package_changes(
     tmp_path, ctf_writer, monkeypatch
 ):
-    from festim_microstructure.ebsd.grains import CtfConversion
+    from festim_microstructure.ebsd._grains import CtfConversion
 
     ctf = ctf_writer(tmp_path / "map.ctf", np.zeros((4, 4, 3)))
     observed = {"version": "first"}

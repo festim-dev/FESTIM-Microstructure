@@ -10,9 +10,11 @@ from pathlib import Path
 
 import numpy as np
 
-from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
-from festim_microstructure.ebsd.ctf import CtfMap
-from festim_microstructure.ebsd.import_checks import (
+from . import _options
+from . import _upxo as upxo
+from ._archive import EbsdData, read_ebsd, write_ebsd
+from ._ctf import CtfMap
+from ._import_checks import (
     QualityPanels,
     SegmentationError,
     format_report,
@@ -21,21 +23,19 @@ from festim_microstructure.ebsd.import_checks import (
     write_orientation_png,
     write_quality_png,
 )
-from festim_microstructure.ebsd.import_checks import write_png as write_segerr_png
-from festim_microstructure.ebsd.options import (
+from ._import_checks import write_png as write_segerr_png
+from ._options import (
     CUBIC_LAUE,
     Settings,
     settings_from_provenance,
 )
-from festim_microstructure.ebsd.orientation import (
+from ._orientation import (
     ROT_X_180,
     euler_bunge_to_quat,
     qconj,
     qmul,
 )
-from festim_microstructure.ebsd.provenance import read_provenance, write_provenance
-
-from . import upxo
+from ._provenance import read_provenance, write_provenance
 
 __all__ = [
     "ConversionResult",
@@ -199,7 +199,7 @@ class CtfConversion:
             grains = qmul(opt.euler_correction_quat, grains)
         # The CTF parser independently checks transcription/convention; it does
         # not supply the data used for grain detection or the grain means.
-        from festim_microstructure.ebsd.import_checks import theta_field
+        from ._import_checks import theta_field
 
         transcription = theta_field(self.qgrid, pixels)
         if np.max(transcription[self.ok]) > 1e-3:
@@ -294,7 +294,7 @@ class CtfConversion:
                     code_sha256=hashlib.sha256(
                         Path(__file__).read_bytes()
                         + Path(upxo.__file__).read_bytes()
-                        + Path(__file__).with_name("options.py").read_bytes()
+                        + Path(_options.__file__).read_bytes()
                     ).hexdigest(),
                 )
             )
@@ -455,7 +455,7 @@ def measure_against_ctf(ctf_path, archive_path, options=None, log=print):
     if opt.png:
         write_segerr_png(opt.png, res, cells, unit=settings.unit, log=log)
     if opt.csv:
-        from festim_microstructure.ebsd.import_checks import write_csv
+        from ._import_checks import write_csv
 
         write_csv(opt.csv, res, log=log)
     return res

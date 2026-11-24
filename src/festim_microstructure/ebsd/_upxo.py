@@ -196,12 +196,12 @@ def mesh_grains(
     Failed runs leave previously
     accepted outputs intact and keep a log and validation report for diagnosis.
     """
-    from .archive import read_ebsd
-    from .options import UpxoMeshOptions
+    from . import _options
+    from ._archive import read_ebsd
 
     _validate_timeout(timeout)
 
-    options = options or UpxoMeshOptions()
+    options = options or _options.UpxoMeshOptions()
     options.__post_init__()
     if not np.isfinite(unit) or unit <= 0:
         raise ValueError("unit must be finite and positive")
@@ -219,8 +219,7 @@ def mesh_grains(
         "upxo_revision": UPXO_REVISION,
         "worker_environment": probe_worker(executable, timeout=timeout),
         "worker_sha256": hashlib.sha256(
-            Path(__file__).read_bytes()
-            + Path(__file__).with_name("options.py").read_bytes()
+            Path(__file__).read_bytes() + Path(_options.__file__).read_bytes()
         ).hexdigest(),
         "input_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
         "options": settings,
@@ -957,5 +956,8 @@ if __name__ == "__main__":
         ),
     }
     if len(sys.argv) != 3 or sys.argv[1] not in modes:
-        raise SystemExit("usage: upxo.py --worker/--import/--environment/--health PATH")
+        script = Path(__file__).name
+        raise SystemExit(
+            f"usage: {script} --worker/--import/--environment/--health PATH"
+        )
     modes[sys.argv[1]](sys.argv[2])

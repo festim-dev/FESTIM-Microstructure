@@ -73,31 +73,19 @@ def test_fem_is_where_the_fenics_glue_lives():
     assert heavy == {"_system.py", "solvers.py", "subdomains.py"}
 
 
-def test_ebsd_contains_one_set_of_source_modules():
-    """EBSD owns its readers, options, pipeline, topology, and checks."""
+def test_ebsd_implementation_modules_are_private():
+    """EBSD exposes its public API from the package namespace."""
     modules = {
         path.stem for path in (SRC / "ebsd").glob("*.py") if path.stem != "__init__"
     }
-    assert modules == {
-        "archive",
-        "ctf",
-        "grains",
-        "import_checks",
-        "mesh_checks",
-        "options",
-        "orientation",
-        "pipeline",
-        "plotting",
-        "provenance",
-        "topology",
-        "upxo",
-    }
+    assert modules
+    assert all(name.startswith("_") for name in modules)
 
 
 def test_ebsd_solver_imports_are_confined_to_mesh_integration():
     """The worker and data preparation modules have no solver imports."""
     solver = {"dolfinx", "festim", "ufl", "basix", "petsc4py", "mpi4py"}
-    allowed = {"topology", "pipeline", "mesh_checks"}
+    allowed = {"_topology", "_pipeline", "_mesh_checks"}
     for path in (SRC / "ebsd").glob("*.py"):
         if path.stem in allowed:
             continue

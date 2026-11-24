@@ -8,9 +8,9 @@ from pathlib import Path
 
 import numpy as np
 
-from .orientation import euler_bunge_to_quat
-from .provenance import read_provenance
-from .upxo import DEFAULT_WORKER_TIMEOUT, _validate_timeout
+from ._orientation import euler_bunge_to_quat
+from ._provenance import read_provenance
+from ._upxo import DEFAULT_WORKER_TIMEOUT, _validate_timeout
 
 __all__ = [
     "CUBIC_LAUE",

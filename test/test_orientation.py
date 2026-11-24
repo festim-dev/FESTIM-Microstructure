@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from festim_microstructure.ebsd import orientation as ori
+from festim_microstructure.ebsd import _orientation as ori
 
 
 def test_bunge_0_30_0_is_a_rotation_about_x():

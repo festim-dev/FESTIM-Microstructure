@@ -8,16 +8,15 @@ from typing import Any
 
 import numpy as np
 
-from festim_microstructure.ebsd.archive import read_ebsd
-from festim_microstructure.ebsd.options import Settings
-from festim_microstructure.ebsd.orientation import (
+from ._archive import read_ebsd
+from ._options import Settings
+from ._orientation import (
     ROT_X_180,
     cubic_disorientation_angle,
     qconj,
     qmul,
 )
-
-from .plotting import draw_raster, scale_bar_ax, use_agg
+from ._plotting import draw_raster, scale_bar_ax, use_agg
 
 __all__ = [
     "L2Stats",

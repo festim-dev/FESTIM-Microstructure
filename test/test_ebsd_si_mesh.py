@@ -33,10 +33,11 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
 
     import festim_microstructure as fm
     from festim_microstructure import ebsd
-    from festim_microstructure.ebsd import topology, upxo
-    from festim_microstructure.ebsd.archive import read_ebsd, read_extent
-    from festim_microstructure.ebsd.options import Settings, settings_from_provenance
-    from festim_microstructure.ebsd.orientation import euler_bunge_to_quat
+    from festim_microstructure.ebsd import _topology as topology
+    from festim_microstructure.ebsd import _upxo as upxo
+    from festim_microstructure.ebsd._archive import read_ebsd, read_extent
+    from festim_microstructure.ebsd._options import Settings, settings_from_provenance
+    from festim_microstructure.ebsd._orientation import euler_bunge_to_quat
 
     executable = upxo.resolve_python(required=False)
     if executable is None:
@@ -234,8 +235,8 @@ def test_ctf_transport_conserves_inventory_and_exchanges_with_boundary(
 
     import festim_microstructure as fm
     from festim_microstructure import ebsd
-    from festim_microstructure.ebsd import upxo
-    from festim_microstructure.ebsd.options import Settings
+    from festim_microstructure.ebsd import _upxo as upxo
+    from festim_microstructure.ebsd._options import Settings
     from festim_microstructure.postprocessing.averages import inventory, solutions
 
     if upxo.resolve_python(required=False) is None:

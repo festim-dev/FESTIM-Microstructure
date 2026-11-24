@@ -96,7 +96,7 @@ def test_dimension_agnostic_voronoi_fields():
 
 def test_ebsd_class_declares_the_boundary_topology_and_mesh_contracts():
     """EBSD boundary edges supply the topology and disorientation fields."""
-    from festim_microstructure.ebsd.topology import EbsdMicrostructure
+    from festim_microstructure.ebsd import EbsdMicrostructure
 
     assert missing_members(EbsdMicrostructure, BoundaryTopology) == []
     assert missing_members(EbsdMicrostructure, MeshedMicrostructure) == []
