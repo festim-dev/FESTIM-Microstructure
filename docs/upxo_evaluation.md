@@ -68,9 +68,9 @@ and **95 additional regression tests**. Ruff lint/format and `pip check` passed.
 Local command:
 
 ```bash
-FM_REQUIRE_FULL_STACK=1 python -m pytest -q test/test_ebsd_si_mesh.py \
-  test/test_short_circuit.py test/test_subdomains.py test/test_gb_field.py \
-  test/test_gb_homogenisation.py
+FM_REQUIRE_FULL_STACK=1 python -m pytest -q test/ebsd/test_pipeline.py \
+  test/fem/test_short_circuit.py test/fem/test_subdomains.py test/fem/test_gb_field.py \
+  test/examples/test_gb_homogenisation.py
 ```
 
 ## Quaternion mean correction
@@ -306,7 +306,7 @@ python tools/evaluate_upxo.py verify
 
 /tmp/upxo-eval-env/bin/python -m pytest \
   /tmp/upxo-review/tests/meshing/test_confmesh2d_gmsh.py -q
-/tmp/upxo-eval-env/bin/python -m pytest test/test_upxo_evaluation.py -q
+/tmp/upxo-eval-env/bin/python -m pytest test/tools/test_upxo_evaluation.py -q
 ```
 
 The actual run borrowed OpenGL shared libraries from the existing Conda

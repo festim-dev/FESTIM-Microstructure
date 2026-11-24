@@ -7,24 +7,10 @@ import numpy as np
 import pytest
 
 spec = importlib.util.spec_from_file_location(
-    "evaluate_upxo", Path(__file__).resolve().parents[1] / "tools/evaluate_upxo.py"
+    "evaluate_upxo", Path(__file__).resolve().parents[2] / "tools/evaluate_upxo.py"
 )
 evaluation = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(evaluation)
-
-
-def pixel_triangles(labels):
-    """A conforming triangular mesh of a labelled pixel map."""
-    nx = labels.shape[1]
-    triangles, owners = [], []
-    for (row, col), grain in np.ndenumerate(labels):
-        if grain == 0:
-            continue
-        a = row * (nx + 1) + col
-        b, c, d = a + 1, a + nx + 1, a + nx + 2
-        triangles.extend([(a, b, d), (a, d, c)])
-        owners.extend([grain, grain])
-    return np.asarray(triangles), np.asarray(owners)
 
 
 @pytest.mark.parametrize(
@@ -36,7 +22,9 @@ def pixel_triangles(labels):
         ("interior_void", [(1, 0), (1, 0)]),
     ],
 )
-def test_boundary_arcs_keep_disconnected_closed_loops(case, expected_pairs):
+def test_boundary_arcs_keep_disconnected_closed_loops(
+    case, expected_pairs, pixel_triangles
+):
     triangles, owners = pixel_triangles(evaluation.synthetic_cases()[case])
     arcs, nonmanifold = evaluation.boundary_arcs(triangles, owners)
     assert nonmanifold == 0
@@ -47,7 +35,7 @@ def test_boundary_arcs_keep_disconnected_closed_loops(case, expected_pairs):
         np.testing.assert_array_equal(counts, 2)
 
 
-def test_boundary_arcs_split_at_triple_junction():
+def test_boundary_arcs_split_at_triple_junction(pixel_triangles):
     triangles, owners = pixel_triangles(evaluation.synthetic_cases()["triple_junction"])
     arcs, nonmanifold = evaluation.boundary_arcs(triangles, owners)
     interior = [(pair, edges) for pair, edges in arcs if 0 not in pair]

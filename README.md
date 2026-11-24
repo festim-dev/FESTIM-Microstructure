@@ -66,7 +66,7 @@ missing dependencies or skipped tests fail that job. To check EBSD mesh
 reconstruction, boundary exchange and inventory conservation locally, run:
 
 ```bash
-FM_REQUIRE_FULL_STACK=1 python -m pytest -q test/test_ebsd_si_mesh.py
+FM_REQUIRE_FULL_STACK=1 python -m pytest -q test/ebsd/test_pipeline.py
 ```
 
 The environment also includes test and lint tools. For VS Code, select the
@@ -119,7 +119,7 @@ conda env update -n festim-microstructure -f environment.yml --prune
 conda activate festim-microstructure
 python -m pip install --no-deps -e .
 fm-check --ebsd
-FM_REQUIRE_FULL_STACK=1 python -m pytest -q test/test_ebsd_si_mesh.py
+FM_REQUIRE_FULL_STACK=1 python -m pytest -q test/ebsd/test_pipeline.py
 ```
 
 This also upgrades an existing Python 3.12 `festim-microstructure` environment

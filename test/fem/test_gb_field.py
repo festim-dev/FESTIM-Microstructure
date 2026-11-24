@@ -8,9 +8,11 @@ independently of the entity map the field itself uses.
 
 import numpy as np
 import pytest
-from test_short_circuit import NETWORK_ID, SURFACE_ID_0
 
 pytestmark = pytest.mark.fenics
+
+NETWORK_ID = 1_000_000
+SURFACE_ID_0 = 2_000_000
 
 
 @pytest.mark.fenics

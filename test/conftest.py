@@ -4,6 +4,27 @@ import pytest
 
 
 @pytest.fixture
+def pixel_triangles():
+    """Provide a triangulation for labelled test rasters."""
+    import numpy as np
+
+    def triangulate(labels):
+        """Build a conforming triangular mesh of a labelled pixel map."""
+        nx = labels.shape[1]
+        triangles, owners = [], []
+        for (row, col), grain in np.ndenumerate(labels):
+            if grain == 0:
+                continue
+            a = row * (nx + 1) + col
+            b, c, d = a + 1, a + nx + 1, a + nx + 2
+            triangles.extend([(a, b, d), (a, d, c)])
+            owners.extend([grain, grain])
+        return np.asarray(triangles), np.asarray(owners)
+
+    return triangulate
+
+
+@pytest.fixture
 def ctf_writer():
     """Create complete Oxford text maps with optional quality/phase fields."""
 

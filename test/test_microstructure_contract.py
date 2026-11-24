@@ -7,6 +7,7 @@ and the real classes are checked against the protocol without building a mesh.
 import numpy as np
 import pytest
 
+from festim_microstructure.ebsd import EbsdMicrostructure
 from festim_microstructure.microstructure import (
     BoundaryTopology,
     GeometricBoundaryLocator,
@@ -81,9 +82,11 @@ def test_missing_members_are_named_rather_than_just_rejected():
     assert not isinstance(stub, MeshedMicrostructure)
 
 
-def test_voronoi_class_declares_the_whole_meshed_contract():
-    """Every protocol member is reachable before a dimension is selected."""
-    assert missing_members(VoronoiMicrostructure, MeshedMicrostructure) == []
+@pytest.mark.parametrize(
+    "implementation", [VoronoiMicrostructure, EbsdMicrostructure, TaggedPolycrystal]
+)
+def test_implementation_declares_the_meshed_contract(implementation):
+    assert missing_members(implementation, MeshedMicrostructure) == []
 
 
 def test_dimension_agnostic_voronoi_fields():
@@ -94,21 +97,13 @@ def test_dimension_agnostic_voronoi_fields():
     assert {"facet_tags", "gb_tag"} <= fields
 
 
-def test_ebsd_class_declares_the_boundary_topology_and_mesh_contracts():
+def test_ebsd_boundary_topology_and_optional_capabilities():
     """EBSD boundary edges supply the topology and disorientation fields."""
-    from festim_microstructure.ebsd import EbsdMicrostructure
-
     assert missing_members(EbsdMicrostructure, BoundaryTopology) == []
-    assert missing_members(EbsdMicrostructure, MeshedMicrostructure) == []
     assert missing_members(EbsdMicrostructure, PlanarLatticeOrientations) == [
         "orientations"
     ]
     assert missing_members(EbsdMicrostructure, GeometricBoundaryLocator) == ["locator"]
-
-
-def test_tagged_polycrystal_satisfies_the_meshed_contract():
-    """Verify tagged polycrystal satisfies the meshed contract."""
-    assert missing_members(TaggedPolycrystal, MeshedMicrostructure) == []
 
 
 def test_tagged_polycrystal_fills_in_the_ids_and_the_orientations():
