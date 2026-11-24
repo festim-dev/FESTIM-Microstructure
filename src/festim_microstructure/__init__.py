@@ -27,6 +27,7 @@ from .fem import (
     grain_boundary_network,
     grain_subdomains,
     grain_surfaces,
+    tune_direct_solver,
 )
 from .materials import crystal_diffusivity_field
 from .microstructure import (
@@ -69,5 +70,6 @@ __all__ = [
     "msh4",
     "postprocessing",
     "run_ebsd_pipeline",
+    "tune_direct_solver",
     "voronoi",
 ]

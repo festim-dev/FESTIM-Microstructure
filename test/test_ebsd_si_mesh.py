@@ -281,7 +281,7 @@ def test_ctf_transport_conserves_inventory_and_exchanges_with_boundary(
         for c, g in zip(species, grains, strict=True)
     ]
     model.initialise()
-    fm.fem.tune_direct_solver(model)
+    fm.tune_direct_solver(model)
     assert model.manifold_is_interior(network)
     # A sweep updates the constants after FESTIM has compiled the forms.
     k.value = 1e-7

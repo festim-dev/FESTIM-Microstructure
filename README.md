@@ -247,7 +247,7 @@ model = F.HydrogenTransportProblemDiscontinuous(
     settings=F.Settings(atol=1e-25, rtol=1e-10, transient=False),
 )
 model.initialise()
-fm.fem.tune_direct_solver(model)  # MUMPS workspace for many-subdomain problems
+fm.tune_direct_solver(model)  # MUMPS workspace for many-subdomain problems
 model.run()
 total = system.inventory()
 ```

@@ -107,7 +107,7 @@ def grain_network_problem(D_gb):
         ),
     )
     model.initialise()
-    fm.fem.tune_direct_solver(model)
+    fm.tune_direct_solver(model)
     return model, system
 
 

@@ -117,7 +117,7 @@ class CellProblem:
     def solve(self):
         """Initialize and run the cell problem, then return it."""
         self.model.initialise()
-        fm.fem.tune_direct_solver(self.model)
+        fm.tune_direct_solver(self.model)
         self.model.run()
         return self
 
@@ -422,7 +422,7 @@ def uptake(micro, transport, D_eff, n_steps=60, verbose=True):
     # FESTIM creates progress_bar in run(), which this manual stepping skips.
     cp.model.show_progress_bar = False
     cp.model.initialise()  # the stepping is driven here rather than by run()
-    fm.fem.tune_direct_solver(cp.model)
+    fm.tune_direct_solver(cp.model)
 
     homogeneous, c, volume, _ = homogeneous_model(
         size,

@@ -72,7 +72,7 @@ model = F.HydrogenTransportProblemDiscontinuous(
     ),
 )
 model.initialise()
-fm.fem.tune_direct_solver(model)
+fm.tune_direct_solver(model)
 model.run()
 network = system.network
 fm.postprocessing.averages.write_vtx(

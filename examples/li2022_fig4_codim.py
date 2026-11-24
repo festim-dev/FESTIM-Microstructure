@@ -141,7 +141,7 @@ def cell_problem(micro, D_gb, bcs):
         settings=F.Settings(atol=1e-25, rtol=1e-10, transient=False),
     )
     model.initialise()
-    fm.fem.tune_direct_solver(model)
+    fm.tune_direct_solver(model)
     return CellProblem(model, system, tensors, D_gb, k)
 
 

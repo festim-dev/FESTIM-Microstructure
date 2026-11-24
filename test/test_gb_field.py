@@ -119,7 +119,7 @@ def test_diffusivity_by_entity_follows_the_tags():
         theta[entity[nearest] - 1],
     )
 
-    fm.fem.solvers.tune_direct_solver(model)
+    fm.tune_direct_solver(model)
     model.run()
     total = fm.postprocessing.averages.inventory(
         grains, grain_species, network, c_gb, 1e-3
