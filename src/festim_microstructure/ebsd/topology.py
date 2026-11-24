@@ -13,8 +13,8 @@ import numpy as np
 from festim_microstructure.microstructure import _global_tag_values
 from festim_microstructure.msh4 import read_mesh
 
-from ._archive import read_ebsd, read_extent
-from ._orientation import cubic_disorientation_angle, qconj, qmul
+from .archive import read_ebsd, read_extent
+from .orientation import cubic_disorientation_angle, qconj, qmul
 
 __all__ = ["BoundaryEdges", "EbsdMicrostructure"]
 

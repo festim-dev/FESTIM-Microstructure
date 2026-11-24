@@ -8,8 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
-from ._orientation import euler_bunge_to_quat
-from ._provenance import read_provenance
+from .orientation import euler_bunge_to_quat
+from .provenance import read_provenance
 
 __all__ = [
     "CUBIC_LAUE",

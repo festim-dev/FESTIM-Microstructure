@@ -8,15 +8,15 @@ from typing import Any
 
 import numpy as np
 
-from ._archive import read_ebsd
-from ._options import Settings
-from ._orientation import (
+from .archive import read_ebsd
+from .options import Settings
+from .orientation import (
     ROT_X_180,
     cubic_disorientation_angle,
     qconj,
     qmul,
 )
-from ._plotting import draw_raster, scale_bar_ax, use_agg
+from .plotting import draw_raster, scale_bar_ax, use_agg
 
 __all__ = [
     "L2Stats",

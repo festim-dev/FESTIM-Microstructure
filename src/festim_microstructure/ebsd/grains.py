@@ -10,10 +10,10 @@ from pathlib import Path
 
 import numpy as np
 
-from . import _options, _upxo, _worker
-from ._archive import EbsdData, read_ebsd, write_ebsd
-from ._ctf import CtfMap
-from ._import_checks import (
+from . import options, upxo, worker
+from .archive import EbsdData, read_ebsd, write_ebsd
+from .ctf import CtfMap
+from .import_checks import (
     QualityPanels,
     SegmentationError,
     format_report,
@@ -22,19 +22,19 @@ from ._import_checks import (
     write_orientation_png,
     write_quality_png,
 )
-from ._import_checks import write_png as write_segerr_png
-from ._options import (
+from .import_checks import write_png as write_segerr_png
+from .options import (
     CUBIC_LAUE,
     Settings,
     settings_from_provenance,
 )
-from ._orientation import (
+from .orientation import (
     ROT_X_180,
     euler_bunge_to_quat,
     qconj,
     qmul,
 )
-from ._provenance import read_provenance, write_provenance
+from .provenance import read_provenance, write_provenance
 
 __all__ = [
     "ConversionResult",
@@ -114,12 +114,12 @@ class CtfConversion:
         settings: Settings,
         log=print,
         *,
-        timeout=_options.DEFAULT_WORKER_TIMEOUT,
+        timeout=options.DEFAULT_WORKER_TIMEOUT,
         check_images=False,
     ):
         if not isinstance(settings, Settings):
             raise TypeError("settings must be Settings")
-        _options._validate_timeout(timeout)
+        options._validate_timeout(timeout)
         self.settings = settings
         self.log = log or (lambda *args: None)
         self.timeout = timeout
@@ -166,7 +166,7 @@ class CtfConversion:
 
     def import_grains(self):
         opt = self.settings
-        imported = _worker.import_ebsd(
+        imported = worker.import_ebsd(
             self.ctf,
             self.window,
             self.ok,
@@ -196,7 +196,7 @@ class CtfConversion:
             grains = qmul(opt.euler_correction_quat, grains)
         # The CTF parser independently checks transcription/convention; it does
         # not supply the data used for grain detection or the grain means.
-        from ._import_checks import theta_field
+        from .import_checks import theta_field
 
         transcription = theta_field(self.qgrid, pixels)
         if np.max(transcription[self.ok]) > 1e-3:
@@ -284,13 +284,13 @@ class CtfConversion:
                     source_sha256=hashlib.sha256(
                         Path(self.settings.ctf).read_bytes()
                     ).hexdigest(),
-                    upxo_revision=_upxo.UPXO_REVISION,
-                    worker_environment=_worker.probe_worker(timeout=self.timeout),
+                    upxo_revision=upxo.UPXO_REVISION,
+                    worker_environment=worker.probe_worker(timeout=self.timeout),
                     code_sha256=hashlib.sha256(
                         Path(__file__).read_bytes()
-                        + Path(_worker.__file__).read_bytes()
-                        + _worker.WORKER_SCRIPT.read_bytes()
-                        + Path(_options.__file__).read_bytes()
+                        + Path(worker.__file__).read_bytes()
+                        + worker.WORKER_SCRIPT.read_bytes()
+                        + Path(options.__file__).read_bytes()
                     ).hexdigest(),
                 )
             )
@@ -384,7 +384,7 @@ def convert(
     settings: Settings | None = None,
     log=print,
     force=True,
-    timeout=_options.DEFAULT_WORKER_TIMEOUT,
+    timeout=options.DEFAULT_WORKER_TIMEOUT,
     check_images=False,
     **kwargs,
 ):
@@ -451,7 +451,7 @@ def measure_against_ctf(ctf_path, archive_path, options=None, log=print):
     if opt.png:
         write_segerr_png(opt.png, res, cells, unit=settings.unit, log=log)
     if opt.csv:
-        from ._import_checks import write_csv
+        from .import_checks import write_csv
 
         write_csv(opt.csv, res, log=log)
     return res

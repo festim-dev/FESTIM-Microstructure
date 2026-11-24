@@ -6,14 +6,14 @@ import numpy as np
 import pytest
 
 from festim_microstructure.ebsd import MeasureOptions, convert, measure_against_ctf
-from festim_microstructure.ebsd._archive import EbsdData, read_ebsd, write_ebsd
-from festim_microstructure.ebsd._orientation import (
+from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
+from festim_microstructure.ebsd.orientation import (
     cubic_disorientation_angle,
     euler_bunge_to_quat,
     qconj,
     qmul,
 )
-from festim_microstructure.ebsd._worker import resolve_python
+from festim_microstructure.ebsd.worker import resolve_python
 
 requires_upxo = pytest.mark.skipif(
     resolve_python(required=False) is None, reason="UPXO/DefDAP importer unavailable"
@@ -111,12 +111,12 @@ def test_phase_selection_reordered_rows_and_rectangular_pixels(tmp_path, ctf_wri
 def test_import_cache_invalidates_when_source_changes(
     tmp_path, ctf_writer, monkeypatch
 ):
-    from festim_microstructure.ebsd import _worker
+    from festim_microstructure.ebsd import worker
 
     ctf = ctf_writer(tmp_path / "map.ctf", np.zeros((4, 4, 3)))
     output = tmp_path / "map.npz"
     first = convert(ctf, output, min_pixels=1, force=False, log=None)
-    run = _worker.subprocess.run
+    run = worker.subprocess.run
     with monkeypatch.context() as context:
 
         def cached_run(command, **kwargs):
@@ -124,7 +124,7 @@ def test_import_cache_invalidates_when_source_changes(
                 pytest.fail("valid cache should reuse imported grains")
             return run(command, **kwargs)
 
-        context.setattr(_worker.subprocess, "run", cached_run)
+        context.setattr(worker.subprocess, "run", cached_run)
         second = convert(ctf, output, min_pixels=1, force=False, log=None)
     np.testing.assert_array_equal(first.data.labels, second.data.labels)
     ctf_writer(ctf, np.full((4, 4, 3), [0, 30, 0]))
@@ -139,7 +139,7 @@ def test_import_cache_regenerates_unsupported_provenance(
     tmp_path, ctf_writer, monkeypatch
 ):
     """An intact archive cannot keep an unsupported provenance record in use."""
-    from festim_microstructure.ebsd import _worker
+    from festim_microstructure.ebsd import worker
 
     ctf = ctf_writer(tmp_path / "map.ctf", np.zeros((4, 4, 3)))
     output = tmp_path / "map.npz"
@@ -148,7 +148,7 @@ def test_import_cache_regenerates_unsupported_provenance(
     current_version = record["version"]
     record["version"] = current_version + 1
     first.provenance.write_text(json.dumps(record))
-    run = _worker.subprocess.run
+    run = worker.subprocess.run
     imports = []
 
     def tracked_run(command, **kwargs):
@@ -156,7 +156,7 @@ def test_import_cache_regenerates_unsupported_provenance(
             imports.append(command)
         return run(command, **kwargs)
 
-    monkeypatch.setattr(_worker.subprocess, "run", tracked_run)
+    monkeypatch.setattr(worker.subprocess, "run", tracked_run)
     rebuilt = convert(ctf, output, min_pixels=1, force=False, log=None)
     assert len(imports) == 1
     assert json.loads(rebuilt.provenance.read_text())["version"] == current_version
@@ -182,12 +182,12 @@ def test_native_archive_retains_voids_components_and_membership(tmp_path):
 def test_import_cache_invalidates_when_worker_environment_changes(
     tmp_path, ctf_writer, monkeypatch
 ):
-    from festim_microstructure.ebsd import _worker
+    from festim_microstructure.ebsd import worker
 
     ctf = ctf_writer(tmp_path / "map.ctf", np.zeros((4, 4, 3)))
     output = tmp_path / "map.npz"
     convert(ctf, output, min_pixels=1, force=False, log=None)
-    probe, run = _worker.probe_worker, _worker.subprocess.run
+    probe, run = worker.probe_worker, worker.subprocess.run
     calls = []
 
     def changed_environment(*args, **kwargs):
@@ -198,8 +198,8 @@ def test_import_cache_invalidates_when_worker_environment_changes(
             calls.append(command)
         return run(command, **kwargs)
 
-    monkeypatch.setattr(_worker, "probe_worker", changed_environment)
-    monkeypatch.setattr(_worker.subprocess, "run", tracked_run)
+    monkeypatch.setattr(worker, "probe_worker", changed_environment)
+    monkeypatch.setattr(worker.subprocess, "run", tracked_run)
     convert(ctf, output, min_pixels=1, force=False, log=None)
     assert len(calls) == 1
 
@@ -217,8 +217,8 @@ HEMISPHERE_EULER = np.array(
 
 
 def test_symmetry_mean_is_invariant_to_antipodal_signs():
-    from festim_microstructure.ebsd._orientation import crystal_equivalents
-    from festim_microstructure.ebsd._upxo import _sign_aligned_quaternion_mean
+    from festim_microstructure.ebsd.orientation import crystal_equivalents
+    from festim_microstructure.ebsd.upxo import _sign_aligned_quaternion_mean
 
     pixels = euler_bunge_to_quat(*HEMISPHERE_EULER.T)
     equivalents = crystal_equivalents(pixels).transpose(1, 2, 0)

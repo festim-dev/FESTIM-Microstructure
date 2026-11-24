@@ -8,14 +8,12 @@ import pytest
 
 from festim_microstructure.ebsd import (
     UpxoMeshOptions,
-    _worker,
     mesh_grains,
+    upxo,
+    worker,
 )
-from festim_microstructure.ebsd import (
-    _upxo as upxo,
-)
-from festim_microstructure.ebsd._archive import EbsdData, read_ebsd, write_ebsd
-from festim_microstructure.ebsd._orientation import euler_bunge_to_quat
+from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
+from festim_microstructure.ebsd.orientation import euler_bunge_to_quat
 
 
 def closed_loop_labels(case):
@@ -69,7 +67,7 @@ def test_pixel_seeds_sample_their_own_pixel_including_first_row_and_column():
 
 @pytest.mark.parametrize("smoothing", ["none", "taubin"])
 def test_real_worker_retains_island_and_ownership(tmp_path, smoothing):
-    if _worker.resolve_python(required=False) is None:
+    if worker.resolve_python(required=False) is None:
         pytest.skip("configure FM_EBSD_PYTHON for the UPXO integration test")
     from festim_microstructure.msh4 import read_msh4
 
@@ -158,7 +156,7 @@ def test_triangle_topology_counts_islands_voids_and_disconnected_parts(
 @pytest.mark.parametrize("smoothing", ["none", "taubin"])
 def test_real_worker_void_preservation(tmp_path, smoothing):
     """Exact polygons preserve voids; moving their boundary remains a rejection."""
-    if _worker.resolve_python(required=False) is None:
+    if worker.resolve_python(required=False) is None:
         pytest.skip("UPXO interpreter unavailable")
     labels = np.ones((24, 24), dtype=np.int32)
     labels[8:16, 8:16] = 0
@@ -179,7 +177,7 @@ def test_real_worker_void_preservation(tmp_path, smoothing):
 
 
 def test_real_worker_thin_grain_protection_preserves_labels(tmp_path):
-    if _worker.resolve_python(required=False) is None:
+    if worker.resolve_python(required=False) is None:
         pytest.skip("UPXO interpreter unavailable")
     labels = np.ones((24, 24), dtype=np.int32)
     labels[:, 11:12] = 2

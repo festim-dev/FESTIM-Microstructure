@@ -16,11 +16,11 @@ from pathlib import Path
 
 import numpy as np
 
-from . import _upxo
-from ._archive import read_ebsd
-from ._options import DEFAULT_WORKER_TIMEOUT, UpxoMeshOptions, _validate_timeout
+from . import upxo
+from .archive import read_ebsd
+from .options import DEFAULT_WORKER_TIMEOUT, UpxoMeshOptions, _validate_timeout
 
-WORKER_SCRIPT = Path(_upxo.__file__).resolve()
+WORKER_SCRIPT = Path(upxo.__file__).resolve()
 PYTHON_ENV = "FM_EBSD_PYTHON"
 
 
@@ -125,8 +125,8 @@ def mesh_grains(
     base.parent.mkdir(parents=True, exist_ok=True)
     settings = asdict(options)
     identity = {
-        "protocol": _upxo._PROTOCOL,
-        "upxo_revision": _upxo.UPXO_REVISION,
+        "protocol": upxo._PROTOCOL,
+        "upxo_revision": upxo.UPXO_REVISION,
         "worker_environment": probe_worker(executable, timeout=timeout),
         "worker_sha256": hashlib.sha256(WORKER_SCRIPT.read_bytes()).hexdigest(),
         "input_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
@@ -157,7 +157,7 @@ def mesh_grains(
         stage = Path(scratch)
         np.savez(stage / "input.npz", labels=labels.astype(np.int32), vox=vox)
         request = stage / "request.json"
-        _upxo._save_json(request, {"options": settings, "unit": unit, "stem": stem})
+        upxo._save_json(request, {"options": settings, "unit": unit, "stem": stem})
         log = Path(f"{base}-upxo.log")
         with log.open("w") as stream:
             try:
@@ -185,7 +185,7 @@ def mesh_grains(
         }
         for name in outputs:
             (stage / name).replace(base.parent / name)
-        _upxo._save_json(manifest, {"identity": identity, "outputs": outputs})
+        upxo._save_json(manifest, {"identity": identity, "outputs": outputs})
     return base
 
 
@@ -259,7 +259,7 @@ def import_ebsd(
                 delimiter="\t",
             )
         request = stage / "request.json"
-        _upxo._save_json(
+        upxo._save_json(
             request,
             {"min_pixels": settings.min_pixels, "threshold": settings.threshold},
         )

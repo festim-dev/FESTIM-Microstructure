@@ -3,7 +3,7 @@
 import pytest
 
 from festim_microstructure import check
-from festim_microstructure.ebsd._upxo import DEFDAP_VERSION, UPXO_VERSION
+from festim_microstructure.ebsd.upxo import DEFDAP_VERSION, UPXO_VERSION
 
 
 @pytest.mark.parametrize(

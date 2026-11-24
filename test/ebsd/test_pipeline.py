@@ -34,19 +34,18 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
 
     import festim_microstructure as fm
     from festim_microstructure import ebsd
-    from festim_microstructure.ebsd import _topology as topology
-    from festim_microstructure.ebsd import _upxo, _worker
-    from festim_microstructure.ebsd._archive import read_ebsd, read_extent
-    from festim_microstructure.ebsd._options import Settings, settings_from_provenance
-    from festim_microstructure.ebsd._orientation import euler_bunge_to_quat
+    from festim_microstructure.ebsd import topology, upxo, worker
+    from festim_microstructure.ebsd.archive import read_ebsd, read_extent
+    from festim_microstructure.ebsd.options import Settings, settings_from_provenance
+    from festim_microstructure.ebsd.orientation import euler_bunge_to_quat
 
-    executable = _worker.resolve_python(required=False)
+    executable = worker.resolve_python(required=False)
     if executable is None:
         pytest.skip("configure FM_EBSD_PYTHON for the UPXO integration test")
     monkeypatch.setenv("FM_EBSD_PYTHON", executable)
-    worker_path = str(Path(_upxo.__file__).resolve())
+    worker_path = str(Path(upxo.__file__).resolve())
     worker_calls = []
-    subprocess_run = _worker.subprocess.run
+    subprocess_run = worker.subprocess.run
 
     def isolated_run(command, **kwargs):
         if command[1:3] == ["-I", worker_path]:
@@ -55,8 +54,8 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
             command = [executable, "-I", "-B", "-c", _ISOLATED_WORKER, *command[2:]]
         return subprocess_run(command, **kwargs)
 
-    monkeypatch.setattr(_worker.subprocess, "run", isolated_run)
-    assert _worker.probe_worker(health=True)["health"] == "ok"
+    monkeypatch.setattr(worker.subprocess, "run", isolated_run)
+    assert worker.probe_worker(health=True)["health"] == "ok"
     labels = np.ones((12, 16), dtype=np.int32)
     labels[4:8, 6:10] = 2
     orientations = np.zeros((*labels.shape, 3))
@@ -188,7 +187,7 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
     assert json.loads(Path(f"{base}-validation.json").read_text())["accepted"]
     original = base.with_suffix(".msh4").read_bytes()
 
-    run = _worker.subprocess.run
+    run = worker.subprocess.run
     with monkeypatch.context() as context:
 
         def unexpected_worker(command, **kwargs):
@@ -196,7 +195,7 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
                 raise AssertionError("the matching cache must not rerun UPXO")
             return run(command, **kwargs)
 
-        context.setattr(_worker.subprocess, "run", unexpected_worker)
+        context.setattr(worker.subprocess, "run", unexpected_worker)
         options = replace(options, check_images=True, timeout=150.0)
         cached = fm.run_ebsd_pipeline(options, workdir=tmp_path, force=False)
         assert cached.base == base
@@ -236,11 +235,11 @@ def test_ctf_transport_conserves_inventory_and_exchanges_with_boundary(
 
     import festim_microstructure as fm
     from festim_microstructure import ebsd
-    from festim_microstructure.ebsd import _worker
-    from festim_microstructure.ebsd._options import Settings
+    from festim_microstructure.ebsd import worker
+    from festim_microstructure.ebsd.options import Settings
     from festim_microstructure.postprocessing.averages import inventory, solutions
 
-    if _worker.resolve_python(required=False) is None:
+    if worker.resolve_python(required=False) is None:
         pytest.skip("UPXO interpreter unavailable")
     labels = np.ones((12, 16), dtype=np.int32)
     labels[4:8, 6:10] = 2

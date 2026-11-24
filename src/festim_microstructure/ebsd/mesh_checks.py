@@ -11,8 +11,8 @@ import numpy as np
 
 from festim_microstructure.msh4 import read_msh4
 
-from ._archive import read_ebsd
-from ._plotting import draw_raster, scale_bar_ax, use_agg
+from .archive import read_ebsd
+from .plotting import draw_raster, scale_bar_ax, use_agg
 
 __all__ = [
     "AreaChange",
