@@ -298,7 +298,7 @@ conda create --prefix /tmp/upxo-eval-env -c conda-forge python=3.13 pip libglu -
   rasterio==1.5.2 meshio==5.3.5 pyvista==0.49.0 pytest
 
 # Run prepare and verify with the existing FESTIM environment's Python.
-FM_UPXO_PYTHON=/tmp/upxo-eval-env/bin/python python tools/evaluate_upxo.py prepare
+FM_EBSD_PYTHON=/tmp/upxo-eval-env/bin/python python tools/evaluate_upxo.py prepare
 /tmp/upxo-eval-env/bin/python tools/evaluate_upxo.py mesh --jobs 2 --timeout 180
 /tmp/upxo-eval-env/bin/python tools/evaluate_upxo.py mesh \
   --methods raw taubin_gentle automatic_seeds

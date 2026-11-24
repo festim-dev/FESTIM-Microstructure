@@ -125,13 +125,13 @@ FM_REQUIRE_FULL_STACK=1 python -m pytest -q test/test_ebsd_si_mesh.py
 This also upgrades an existing Python 3.12 `festim-microstructure` environment
 to the current Python 3.13 stack. If you previously used a differently named
 environment, create the standard environment using the installation commands
-above and select it in your editor. Clear any old `FM_UPXO_PYTHON` override
-with `unset FM_UPXO_PYTHON` to use the active interpreter.
+above and select it in your editor. Use `FM_EBSD_PYTHON` for a separate EBSD
+interpreter and clear the old override with `unset FM_UPXO_PYTHON`.
 
 Import and mesh cache identities probe the selected worker before reuse. They
 record its Python executable/version, all installed distribution versions,
 source provenance and installation-record fingerprints. Changing
-`FM_UPXO_PYTHON` or reinstalling dependencies invalidates the matching cache.
+`FM_EBSD_PYTHON` or reinstalling dependencies invalidates the matching cache.
 The probe also rejects incompatible UPXO/DefDAP before a cached result is used.
 Manual edits to installed dependency files or editable dependency source trees
 are not fingerprinted: use immutable dependency installations, or `force=True`

@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import warnings
 from collections import defaultdict
 from dataclasses import asdict
 from itertools import pairwise
@@ -25,7 +26,7 @@ import numpy as np
 
 __all__ = [
     "import_ebsd",
-    "mesh_ebsd",
+    "mesh_grains",
     "probe_worker",
     "resolve_python",
 ]
@@ -34,6 +35,7 @@ DEFDAP_VERSION = "0.93.6"
 UPXO_REVISION = "a53885ef0a7a06f6b3fb195747363ae0a19bb127"
 _PROTOCOL = 4
 DEFAULT_WORKER_TIMEOUT = 600.0
+PYTHON_ENV = "FM_EBSD_PYTHON"
 
 
 def _validate_timeout(timeout):
@@ -42,12 +44,17 @@ def _validate_timeout(timeout):
 
 
 def resolve_python(explicit=None, required=True):
-    """Choose the UPXO interpreter: explicit path, FM_UPXO_PYTHON, then local.
+    """Choose the EBSD interpreter: explicit path, FM_EBSD_PYTHON, then local.
 
     The named conda environment beside the current one is also discovered.
     An explicitly configured missing interpreter is an error, not a fallback.
     """
-    configured = explicit or os.environ.get("FM_UPXO_PYTHON")
+    if os.environ.get("FM_UPXO_PYTHON"):
+        warnings.warn(
+            f"Set {PYTHON_ENV} for the EBSD worker and unset FM_UPXO_PYTHON.",
+            stacklevel=2,
+        )
+    configured = explicit or os.environ.get(PYTHON_ENV)
     if configured:
         executable = shutil.which(str(configured))
         if executable:
@@ -65,7 +72,7 @@ def resolve_python(explicit=None, required=True):
     if required:
         raise FileNotFoundError(
             "UPXO Python interpreter not found. Create and activate "
-            "environment.yml, or set FM_UPXO_PYTHON "
+            f"environment.yml, or set {PYTHON_ENV} "
             "to an interpreter with UPXO installed."
         )
     return None
@@ -171,7 +178,7 @@ def _environment_report(*, health=False):
     return report
 
 
-def mesh_ebsd(
+def mesh_grains(
     archive,
     options=None,
     *,

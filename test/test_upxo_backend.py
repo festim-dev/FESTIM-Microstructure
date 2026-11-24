@@ -7,16 +7,34 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from festim_microstructure.ebsd import EbsdOptions, Settings, UpxoMeshOptions, upxo
+from festim_microstructure.ebsd import (
+    EbsdOptions,
+    Settings,
+    UpxoMeshOptions,
+    mesh_grains,
+    upxo,
+)
 from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
 from festim_microstructure.ebsd.orientation import euler_bunge_to_quat
 
 
 def test_configured_interpreter_does_not_fall_back(monkeypatch):
-    monkeypatch.setenv("FM_UPXO_PYTHON", "/does/not/exist/python")
+    monkeypatch.setenv("FM_EBSD_PYTHON", "/does/not/exist/python")
     assert upxo.resolve_python(required=False) is None
-    with pytest.raises(FileNotFoundError, match="FM_UPXO_PYTHON"):
+    with pytest.raises(FileNotFoundError, match="FM_EBSD_PYTHON"):
         upxo.resolve_python()
+
+
+def test_legacy_interpreter_override_warns(monkeypatch):
+    monkeypatch.setenv("FM_UPXO_PYTHON", "/retired/worker/python")
+    monkeypatch.setenv("FM_EBSD_PYTHON", upxo.sys.executable)
+    with pytest.warns(UserWarning, match="FM_EBSD_PYTHON.*unset FM_UPXO_PYTHON"):
+        assert upxo.resolve_python() == upxo.sys.executable
+
+
+def test_invalid_explicit_interpreter_takes_precedence(monkeypatch):
+    monkeypatch.setenv("FM_EBSD_PYTHON", upxo.sys.executable)
+    assert upxo.resolve_python("/missing/worker/python", required=False) is None
 
 
 @pytest.mark.parametrize("active_environment", ["festim-microstructure", "solver"])
@@ -25,7 +43,7 @@ def test_standard_environment_discovery(tmp_path, monkeypatch, active_environmen
     interpreter.parent.mkdir(parents=True)
     interpreter.touch(mode=0o755)
     active = tmp_path / active_environment
-    monkeypatch.delenv("FM_UPXO_PYTHON", raising=False)
+    monkeypatch.delenv("FM_EBSD_PYTHON", raising=False)
     monkeypatch.setattr(upxo.sys, "prefix", str(active))
     monkeypatch.setattr(upxo.sys, "executable", str(active / "bin" / "python"))
     monkeypatch.setattr(upxo.importlib.util, "find_spec", lambda name: None)
@@ -85,7 +103,7 @@ def test_worker_failure_preserves_accepted_outputs(tmp_path, monkeypatch):
 
     monkeypatch.setattr(upxo.subprocess, "run", failed_worker)
     with pytest.raises(RuntimeError, match="UPXO meshing failed"):
-        upxo.mesh_ebsd(source, workdir=tmp_path)
+        mesh_grains(source, workdir=tmp_path)
     assert mesh.read_bytes() == b"previous accepted mesh"
     assert (
         json.loads((tmp_path / "poly-failed-validation.json").read_text())["accepted"]
@@ -109,7 +127,7 @@ def test_geometry_gate_rejects_lost_grain_contact():
 @pytest.mark.parametrize("smoothing", ["none", "taubin"])
 def test_real_worker_retains_island_and_ownership(tmp_path, smoothing):
     if upxo.resolve_python(required=False) is None:
-        pytest.skip("configure FM_UPXO_PYTHON for the UPXO integration test")
+        pytest.skip("configure FM_EBSD_PYTHON for the UPXO integration test")
     from festim_microstructure.msh4 import read_msh4
 
     labels = np.ones((24, 24), dtype=np.int32)
@@ -119,9 +137,7 @@ def test_real_worker_retains_island_and_ownership(tmp_path, smoothing):
         np.array([37, 21]), np.array([52, 43]), np.array([131, 73])
     )
     write_ebsd(source, EbsdData(labels, grain_quats, (1.6, 0.8)))
-    base = upxo.mesh_ebsd(
-        source, UpxoMeshOptions(smoothing=smoothing), workdir=tmp_path
-    )
+    base = mesh_grains(source, UpxoMeshOptions(smoothing=smoothing), workdir=tmp_path)
     report = json.loads(Path(f"{base}-validation.json").read_text())
     assert report["accepted"]
     assert report["export"]["accepted"]
@@ -175,12 +191,12 @@ def test_real_worker_void_preservation(tmp_path, smoothing):
     options = UpxoMeshOptions(smoothing=smoothing)
     if smoothing == "taubin":
         with pytest.raises(RuntimeError, match="UPXO meshing failed"):
-            upxo.mesh_ebsd(source, options, workdir=tmp_path)
+            mesh_grains(source, options, workdir=tmp_path)
         report = json.loads((tmp_path / "poly-failed-validation.json").read_text())
         assert not report["geometry"]["accepted"]
         assert not (tmp_path / "poly.msh4").exists()
     else:
-        base = upxo.mesh_ebsd(source, options, workdir=tmp_path)
+        base = mesh_grains(source, options, workdir=tmp_path)
         report = json.loads(Path(f"{base}-validation.json").read_text())
         assert report["accepted"]
         assert report["mesh"]["actual_topology"] == {"1": {"parts": 1, "holes": 1}}
@@ -193,7 +209,7 @@ def test_real_worker_thin_grain_protection_preserves_labels(tmp_path):
     labels[:, 11:12] = 2
     source = tmp_path / "thin.npz"
     write_ebsd(source, EbsdData(labels, np.array([[1.0, 0, 0, 0]] * 2), (1, 1)))
-    base = upxo.mesh_ebsd(source, UpxoMeshOptions(thin_grain_px=1.5), workdir=tmp_path)
+    base = mesh_grains(source, UpxoMeshOptions(thin_grain_px=1.5), workdir=tmp_path)
     report = json.loads(Path(f"{base}-validation.json").read_text())
     assert report["accepted"]
     np.testing.assert_array_equal(read_ebsd(f"{base}-ebsd.npz").labels, labels)
@@ -266,9 +282,9 @@ def test_import_identity_observes_environment_variable_and_package_changes(
 
     monkeypatch.setattr(upxo, "probe_worker", probe)
     conversion = CtfConversion(Settings(ctf=str(ctf)))
-    monkeypatch.setenv("FM_UPXO_PYTHON", "/usr/bin/python3")
+    monkeypatch.setenv("FM_EBSD_PYTHON", "/usr/bin/python3")
     first = conversion.identity()
-    monkeypatch.setenv("FM_UPXO_PYTHON", "/bin/sh")
+    monkeypatch.setenv("FM_EBSD_PYTHON", "/bin/sh")
     second = conversion.identity()
     assert first != second
     observed["version"] = "replacement"
@@ -292,11 +308,11 @@ def test_mesh_cache_invalidates_when_worker_environment_changes(tmp_path, monkey
         (stage / "poly.msh4").write_text("accepted mesh")
 
     monkeypatch.setattr(upxo.subprocess, "run", worker)
-    upxo.mesh_ebsd(source, workdir=tmp_path, force=False)
-    upxo.mesh_ebsd(source, workdir=tmp_path, force=False)
+    mesh_grains(source, workdir=tmp_path, force=False)
+    mesh_grains(source, workdir=tmp_path, force=False)
     assert len(calls) == 1
     observed["version"] = "replacement"
-    upxo.mesh_ebsd(source, workdir=tmp_path, force=False)
+    mesh_grains(source, workdir=tmp_path, force=False)
     assert len(calls) == 2
 
 
@@ -324,6 +340,6 @@ def test_environment_fingerprint_detects_same_version_reinstall(monkeypatch):
 
 
 def test_environment_probe_rejects_missing_interpreter(monkeypatch):
-    monkeypatch.setenv("FM_UPXO_PYTHON", "/does/not/exist")
+    monkeypatch.setenv("FM_EBSD_PYTHON", "/does/not/exist")
     with pytest.raises(RuntimeError, match="environment probe failed"):
         upxo.probe_worker()

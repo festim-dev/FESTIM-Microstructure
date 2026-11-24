@@ -40,8 +40,8 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
 
     executable = upxo.resolve_python(required=False)
     if executable is None:
-        pytest.skip("configure FM_UPXO_PYTHON for the UPXO integration test")
-    monkeypatch.setenv("FM_UPXO_PYTHON", "/missing-upxo-python")
+        pytest.skip("configure FM_EBSD_PYTHON for the UPXO integration test")
+    monkeypatch.setenv("FM_EBSD_PYTHON", "/missing-upxo-python")
     worker_path = str(Path(upxo.__file__).resolve())
     worker_calls = []
     subprocess_run = upxo.subprocess.run

@@ -76,16 +76,16 @@ With `force=False`, unsupported provenance versions trigger a fresh import.
 For separate import/inspection, use
 `fm.ebsd.grains.convert(ctf, "grains.npz", ...)` and
 `fm.ebsd.grains.measure_against_ctf(ctf, "grains.npz")`.
-`fm.ebsd.upxo.mesh_ebsd("grains.npz", ...)` meshes an existing native archive.
+`fm.ebsd.mesh_grains("grains.npz", ...)` meshes an existing native archive.
 `force=False` checks source/settings/code and output hashes before cache reuse.
 A failed meshing worker retains the previous accepted mesh and writes a failure
 validation report and log.
 
 In the standard environment, the active interpreter runs both the mesher and
 solver. `EbsdOptions(python=...)` selects one interpreter for both worker stages.
-Otherwise the pipeline uses `FM_UPXO_PYTHON` or automatic discovery. Set
+Otherwise the pipeline uses `FM_EBSD_PYTHON` or automatic discovery. Set
 `timeout` to adjust the per-invocation limit of 600 seconds. Standalone
-`convert` and `mesh_ebsd` accept `python` and `timeout` keyword arguments.
+`convert` and `mesh_grains` accept `python` and `timeout` keyword arguments.
 
 `EbsdOptions(check_images=False)` skips import and mesh plots while producing
 the numeric reports. Standalone `convert` generates plots with
