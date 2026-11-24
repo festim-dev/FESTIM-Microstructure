@@ -1,9 +1,4 @@
-"""How a grain-boundary network says where its facets are.
-
-One class covers both routes, so what used to be the choice between two types
-is now a choice of arguments, and the constructor is where a wrong combination
-has to be caught. No mesh is needed for that: nothing here locates anything.
-"""
+"""Network location, grain patches, and FESTIM surface declarations."""
 
 import numpy as np
 import pytest
@@ -75,3 +70,82 @@ def test_a_tagged_network_starts_with_nothing_mapped_back(network):
     net = network(1, object(), 1, facet_tags=tags([1]), entity_ids=[1])
     assert net.entity_ids_of_facets is None
     assert net.n_dropped == 0
+
+
+def _layered_polycrystal(dim):
+    from mpi4py import MPI
+
+    import dolfinx
+
+    import festim_microstructure as fm
+
+    if dim == 2:
+        mesh = dolfinx.mesh.create_unit_square(MPI.COMM_SELF, 3, 3)
+    else:
+        mesh = dolfinx.mesh.create_unit_cube(MPI.COMM_SELF, 3, 3, 3)
+    cells = np.arange(mesh.topology.index_map(dim).size_local, dtype=np.int32)
+    heights = dolfinx.mesh.compute_midpoints(mesh, dim, cells)[:, dim - 1]
+    grain_ids = np.array([2, 7, 11], dtype=np.int32)
+    values = grain_ids[np.searchsorted([1 / 3, 2 / 3], heights)]
+    tags = dolfinx.mesh.meshtags(mesh, dim, cells, values)
+    return fm.TaggedPolycrystal(
+        mesh,
+        tags,
+        network_locator=lambda x: (
+            np.isclose(x[dim - 1], 1 / 3) | np.isclose(x[dim - 1], 2 / 3)
+        ),
+    )
+
+
+@pytest.mark.fenics
+@pytest.mark.parametrize("dim", [2, 3])
+def test_grain_surfaces_assign_facets_in_one_lookup(dim):
+    import dolfinx
+    import festim as F
+
+    import festim_microstructure as fm
+
+    micro = _layered_polycrystal(dim)
+    grains = fm.grain_subdomains(micro, F.Material(D_0=1.0, E_D=0.0))
+    calls = []
+
+    def exterior_ends(x):
+        calls.append(x.shape[1])
+        return np.isclose(x[dim - 1], 0) | np.isclose(x[dim - 1], 1)
+
+    patches, mouths = fm.grain_surfaces(micro.mesh, grains, exterior_ends, 100)
+    assert [p.grain_id for p in patches] == [2, 11]
+    assert [p.id for p in patches] == [100, 102]
+    assert mouths.id == 103 and mouths.dim == dim - 2
+    located = [p.locate_boundary_facet_indices(micro.mesh) for p in patches]
+    assert len(calls) == 1
+
+    facets = dolfinx.mesh.exterior_facet_indices(micro.mesh.topology)
+    heights = dolfinx.mesh.compute_midpoints(micro.mesh, dim - 1, facets)[:, dim - 1]
+    for height, actual in zip((0, 1), located, strict=True):
+        expected = facets[np.isclose(heights, height)]
+        np.testing.assert_array_equal(np.sort(actual), np.sort(expected))
+
+
+@pytest.mark.fenics
+def test_grain_boundary_system_reserves_ids_for_each_surface():
+    import festim as F
+
+    import festim_microstructure as fm
+
+    micro = _layered_polycrystal(2)
+    material = F.Material(D_0=1.0, E_D=0.0)
+    system = fm.GrainBoundarySystem(
+        micro, material, material, width=1e-3, reserved_ids=[1, 4, 15]
+    )
+    assert system.network.id == 3
+
+    def top(x):
+        return np.isclose(x[1], 1)
+
+    surfaces, bcs = system.fixed_concentration(top, 1.0, include_mouths=False)
+    assert [s.id for s in surfaces] == [18]
+    assert bcs[0].species is system.grain_species[-1]
+    surfaces, bcs = system.fixed_concentration(lambda x: np.isclose(x[1], 0), 0.0)
+    assert [s.id for s in surfaces] == [20, 23]
+    assert [bc.species for bc in bcs] == [system.grain_species[0], system.c_gb]

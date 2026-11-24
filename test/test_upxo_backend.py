@@ -7,9 +7,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from festim_microstructure.ebsd import EbsdOptions, Settings, UpxoMeshOptions, upxo
+from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
 from festim_microstructure.ebsd.orientation import euler_bunge_to_quat
-from festim_microstructure.formats.ebsd import EbsdData, read_ebsd, write_ebsd
-from festim_microstructure.meshing import upxo
 
 
 def test_configured_interpreter_does_not_fall_back(monkeypatch):
@@ -47,14 +47,18 @@ def test_standard_environment_discovery(tmp_path, monkeypatch, active_environmen
         ("n_threads", 0),
         ("mesh_size_gb", float("nan")),
         ("smooth_mu", 0),
-        ("timeout", 0),
         ("thin_grain_px", -1),
         ("thin_grain_px", float("nan")),
     ],
 )
 def test_reject_unsupported_or_invalid_options(field, value):
     with pytest.raises(ValueError):
-        upxo.UpxoMeshOptions(**{field: value})
+        UpxoMeshOptions(**{field: value})
+
+
+def test_pipeline_options_reject_invalid_worker_timeout():
+    with pytest.raises(ValueError, match="worker timeout"):
+        EbsdOptions(Settings(ctf="map.ctf"), timeout=0)
 
 
 def test_worker_failure_preserves_accepted_outputs(tmp_path, monkeypatch):
@@ -106,7 +110,7 @@ def test_geometry_gate_rejects_lost_grain_contact():
 def test_real_worker_retains_island_and_ownership(tmp_path, smoothing):
     if upxo.resolve_python(required=False) is None:
         pytest.skip("configure FM_UPXO_PYTHON for the UPXO integration test")
-    from festim_microstructure.formats.msh4 import read_msh4
+    from festim_microstructure.msh4 import read_msh4
 
     labels = np.ones((24, 24), dtype=np.int32)
     labels[8:16, 8:16] = 2
@@ -116,7 +120,7 @@ def test_real_worker_retains_island_and_ownership(tmp_path, smoothing):
     )
     write_ebsd(source, EbsdData(labels, grain_quats, (1.6, 0.8)))
     base = upxo.mesh_ebsd(
-        source, upxo.UpxoMeshOptions(smoothing=smoothing), workdir=tmp_path
+        source, UpxoMeshOptions(smoothing=smoothing), workdir=tmp_path
     )
     report = json.loads(Path(f"{base}-validation.json").read_text())
     assert report["accepted"]
@@ -168,7 +172,7 @@ def test_real_worker_void_preservation(tmp_path, smoothing):
     labels[8:16, 8:16] = 0
     source = tmp_path / "void.npz"
     write_ebsd(source, EbsdData(labels, np.array([[1.0, 0, 0, 0]]), (1, 1)))
-    options = upxo.UpxoMeshOptions(smoothing=smoothing)
+    options = UpxoMeshOptions(smoothing=smoothing)
     if smoothing == "taubin":
         with pytest.raises(RuntimeError, match="UPXO meshing failed"):
             upxo.mesh_ebsd(source, options, workdir=tmp_path)
@@ -189,9 +193,7 @@ def test_real_worker_thin_grain_protection_preserves_labels(tmp_path):
     labels[:, 11:12] = 2
     source = tmp_path / "thin.npz"
     write_ebsd(source, EbsdData(labels, np.array([[1.0, 0, 0, 0]] * 2), (1, 1)))
-    base = upxo.mesh_ebsd(
-        source, upxo.UpxoMeshOptions(thin_grain_px=1.5), workdir=tmp_path
-    )
+    base = upxo.mesh_ebsd(source, UpxoMeshOptions(thin_grain_px=1.5), workdir=tmp_path)
     report = json.loads(Path(f"{base}-validation.json").read_text())
     assert report["accepted"]
     np.testing.assert_array_equal(read_ebsd(f"{base}-ebsd.npz").labels, labels)
@@ -254,8 +256,7 @@ def test_environment_probe_errors_are_actionable(monkeypatch, error):
 def test_import_identity_observes_environment_variable_and_package_changes(
     tmp_path, ctf_writer, monkeypatch
 ):
-    from festim_microstructure.ebsd.convert import CtfConversion
-    from festim_microstructure.ebsd.settings import Settings
+    from festim_microstructure.ebsd.grains import CtfConversion
 
     ctf = ctf_writer(tmp_path / "map.ctf", np.zeros((4, 4, 3)))
     observed = {"version": "first"}

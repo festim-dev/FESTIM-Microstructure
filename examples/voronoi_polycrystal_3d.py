@@ -45,9 +45,6 @@ import festim_microstructure as fm
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "results" / Path(__file__).stem
 
-NETWORK_ID = 1_000_000  # above every grain id; a manifold shares the surface ids
-SURFACE_ID_0 = 2_000_000  # the per-grain surface patches are numbered from here
-
 # Simulation parameters
 L = 1.0  # specimen size
 n_seeds = 36  # number of grains
@@ -121,65 +118,33 @@ def create_microstructure(aspect, aspect_axis):
 
 
 def grain_network_problem(micro, D_gb):
-    """The transport model, as FESTIM declarations; see the 2D example."""
-    mesh = micro.mesh
-    D_lattice, _ = fm.materials.crystal_diffusivity_field(micro, D_B)
-    grains = fm.fem.subdomains.grain_subdomains(micro, F.Material(D=D_lattice))
-    # From the facet tags when the microstructure carries them, by the
-    # geometric locator otherwise (locate_geometrically above).
-    network = fm.fem.subdomains.grain_boundary_network(
-        NETWORK_ID, micro, F.Material(D_0=D_gb, E_D=0.0)
+    """Declare transport with a fixed concentration on the top face."""
+    D_lattice, _ = fm.crystal_diffusivity_field(micro, D_B)
+    system = fm.GrainBoundarySystem(
+        micro,
+        F.Material(D=D_lattice),
+        F.Material(D_0=D_gb, E_D=0.0),
+        width=delta,
     )
-    grain_species = [F.Species(f"c_{g.id}", subdomains=[g]) for g in grains]
-    c_gb = F.Species("c_gb", subdomains=[network])
-    species_of = dict(zip((g.id for g in grains), grain_species, strict=True))
-
-    sources, boundary_conditions = [], []
-    for c_grain in grain_species:
-        exchange = {"c_g": c_grain, "c_n": c_gb}
-        sources.append(
-            F.ParticleSource(
-                value=lambda c_g, c_n: (k_exchange / delta) * (c_g - c_n),
-                species=c_gb,
-                volume=network,
-                species_dependent_value=exchange,
-            )
-        )
-        boundary_conditions.append(
-            F.ParticleFluxBC(
-                subdomain=network,
-                species=c_grain,
-                value=lambda c_g, c_n: k_exchange * (c_n - c_g),
-                species_dependent_value=exchange,
-            )
-        )
-
-    charged = lambda x: np.isclose(x[2], L)  # noqa: E731
-    patches, mouths = fm.fem.subdomains.grain_surfaces(
-        mesh, grains, charged, SURFACE_ID_0
-    )
-    boundary_conditions += [
-        F.FixedConcentrationBC(subdomain=p, value=c0, species=species_of[p.grain_id])
-        for p in patches
-    ]
-    boundary_conditions.append(
-        F.FixedConcentrationBC(subdomain=mouths, value=c0, species=c_gb)
+    sources, flux_bcs = system.exchange(k_exchange)
+    surfaces, surface_bcs = system.fixed_concentration(
+        lambda x: np.isclose(x[2], L), c0
     )
 
     model = GrainNetworkProblem(
-        mesh=F.Mesh(mesh),
-        subdomains=[*grains, network, *patches, mouths],
-        species=[*grain_species, c_gb],
+        mesh=F.Mesh(micro.mesh),
+        subdomains=[*system.subdomains, *surfaces],
+        species=system.species,
         sources=sources,
-        boundary_conditions=boundary_conditions,
+        boundary_conditions=[*flux_bcs, *surface_bcs],
         temperature=T,
         settings=F.Settings(
             atol=1e-14, rtol=1e-12, transient=True, final_time=t_end, stepsize=dt
         ),
     )
     model.initialise()
-    fm.fem.solvers.tune_direct_solver(model)
-    return model, grains, grain_species, network, c_gb
+    fm.fem.tune_direct_solver(model)
+    return model, system
 
 
 def run_case(name, aspect, aspect_axis, prefix):
@@ -188,11 +153,10 @@ def run_case(name, aspect, aspect_axis, prefix):
     micro = create_microstructure(aspect, aspect_axis)
     mesh, boundaries = micro.mesh, micro.boundaries
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    model, grains, grain_species, network, cgb_species = grain_network_problem(
-        micro, D_GB
-    )
+    model, system = grain_network_problem(micro, D_GB)
+    network = system.network
     with fm.exports.averages.vtx_series(
-        grains, grain_species, network, cgb_species, OUTPUT_DIR / prefix
+        system.grains, system.grain_species, network, system.c_gb, OUTPUT_DIR / prefix
     ) as write_fields:
         model.field_writer = write_fields
         try:
@@ -200,7 +164,7 @@ def run_case(name, aspect, aspect_axis, prefix):
             model.run()
         finally:
             model.field_writer = None
-    cgb_fast = cgb_species.subdomain_to_post_processing_solution[network]
+    cgb_fast = system.c_gb.subdomain_to_post_processing_solution[network]
 
     # Inspect the mesh and boundary network
     topology = fm.voronoi.junctions(boundaries, dim=3)
@@ -230,9 +194,7 @@ def run_case(name, aspect, aspect_axis, prefix):
     print(f"  interior facets                 : {model.manifold_is_interior(network)}")
 
     # Inspect the fast-boundary transport solution
-    fast = fm.exports.averages.inventory(
-        grains, grain_species, network, cgb_species, delta
-    )
+    fast = system.inventory()
     depth = fm.exports.measures.junction_only_below(boundaries, axis=2, top=L)
     gb_z = cgb_fast.function_space.tabulate_dof_coordinates()[:, 2]
     deep = gb_z < depth
@@ -245,16 +207,14 @@ def run_case(name, aspect, aspect_axis, prefix):
     print(f"  inventory with fast boundaries : {fast:.4e}")
     f_gb = delta * face_area / L**3
     print(f"  boundary volume fraction f     : {f_gb:.3e}")
-    print(
-        f"  Hart bound f D_gb + (1-f) D_b  : "
-        f"{fm.materials.hart_bound(f_gb, D_GB, D_B):.3e}"
-        f"  (vs D_b = {D_B:.3e})"
-    )
-    beta = fm.materials.beta_parameter(delta, D_GB, D_B, t_end)
+    # Parallel upper bound from Hart (1957), Acta Metall. 5, 597.
+    hart = f_gb * D_GB + (1 - f_gb) * D_B
+    print(f"  Hart bound f D_gb + (1-f) D_b  : {hart:.3e}  (vs D_b = {D_B:.3e})")
+    # Le Claire's type-B parameter.
+    beta = delta * (D_GB / D_B - 1) / (2 * np.sqrt(D_B * t_end))
     print(f"  type-B parameter beta          : {beta:.0f}  (needs beta >> 1)")
-    resistance = fm.materials.interface_resistance_ratio(
-        k_exchange, L * n_seeds ** (-1 / 3), D_B
-    )
+    grain_size = L * n_seeds ** (-1 / 3)
+    resistance = (2.0 / k_exchange) / (grain_size / D_B)
     print(
         f"  interface / lattice resistance : {resistance:.1e}  (Fisher is the 0 limit)"
     )
@@ -266,7 +226,7 @@ def run_case(name, aspect, aspect_axis, prefix):
         return fast
 
     c_grain_deep = fm.exports.averages.lattice_mean_below(
-        grains, grain_species, axis=2, depth=depth
+        system.grains, system.grain_species, axis=2, depth=depth
     )
     print("\njunction transport: no boundary touching the charged face reaches below")
     print(f"z = {depth:.3f}, so everything the network holds there has")

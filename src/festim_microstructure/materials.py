@@ -1,13 +1,10 @@
-"""Diffusivity fields for grains and boundaries, and short-circuit estimates.
+"""Lattice diffusivity tensors and fields for polycrystals.
 
 Material parameters are FESTIM's business: a grain-boundary material is an
 ordinary ``festim.Material(D_0=..., E_D=...)`` and a grain material wraps the
-lattice tensor field built here as ``festim.Material(D=field)``. What is specific
-to a microstructure -- an orientation-dependent lattice tensor per grain, and
-the classical estimates that say what regime a boundary is in -- lives in this
-module. A diffusivity that differs from one boundary to the next is handled by
-the network subdomain itself, since only it knows which tessellation entity each
-submesh cell came from: see ``diffusivity_by_entity`` on
+lattice tensor field built here as ``festim.Material(D=field)``. The network
+subdomain handles diffusivity that differs from one boundary to the next.
+See ``diffusivity_by_entity`` on
 :class:`~festim_microstructure.fem.subdomains.GrainBoundaryNetwork`.
 """
 
@@ -18,14 +15,12 @@ from typing import cast
 import dolfinx
 import numpy as np
 
+from .microstructure import PlanarLatticeOrientations
+
 __all__ = [
-    "beta_parameter",
     "crystal_diffusivity_field",
     "crystal_tensor",
-    "equilibration_length",
     "fill_crystal_diffusivity_field",
-    "hart_bound",
-    "interface_resistance_ratio",
 ]
 
 
@@ -45,43 +40,11 @@ def crystal_tensor(D_bulk, orientation, crystal_anisotropy=1.0):
     return rotation @ principal @ rotation.T
 
 
-def beta_parameter(delta, D_gb, D_b, t_end):
-    """Return Le Claire's type-B parameter; short circuits need ``beta >> 1``.
-
-    Below about one the boundary has no tail of its own to measure and the
-    kinetics are type A or C instead. Le Claire (1963), Br. J. Appl. Phys. 14,
-    351; Mishin et al. (1997), Def. Diff. Forum 143-147, 1359 survey the ranges.
-    """
-    return delta * (D_gb / D_b - 1) / (2 * np.sqrt(D_b * t_end))
-
-
-def hart_bound(f_gb, D_gb, D_b):
-    """Return the parallel (Hart) upper bound ``f D_gb + (1 - f) D_b``.
-
-    Exact only when the two phases conduct in parallel along the flux, and an
-    upper bound otherwise: Hart (1957), Acta Metall. 5, 597.
-    """
-    return f_gb * D_gb + (1 - f_gb) * D_b
-
-
-def equilibration_length(delta, D_gb, k):
-    """Return ``sqrt(delta D_gb / 2k)``, the length over which a boundary
-    equilibrates with its grains; it should be well below the grain size."""
-    return np.sqrt(delta * D_gb / (2 * k))
-
-
-def interface_resistance_ratio(k, grain_size, D_bulk):
-    """Return ``(2/k) / (grain_size / D_bulk)``: crossing one boundary against
-    crossing one grain. Values well below one mean transparent boundaries;
-    Fisher's local-equilibrium picture is the limit 0."""
-    return (2.0 / k) / (grain_size / D_bulk)
-
-
 def crystal_diffusivity_field(micro, D_bulk, crystal_anisotropy=1.0):
     """Create a parent-mesh DG0 tensor field with one lattice tensor per grain.
 
-    ``micro`` is a :class:`~festim_microstructure.microstructure.MeshedMicrostructure`;
-    its ``orientations`` set each grain's tensor through :func:`crystal_tensor`.
+    ``micro`` supplies planar ``orientations`` in radians when
+    ``crystal_anisotropy`` differs from one. Isotropic fields use ``D_bulk * I``.
     Returns the field and the grain-id-to-tensor mapping. Hand the field to
     every grain through ``festim.Material(D=field)``.
     """
@@ -99,16 +62,24 @@ def fill_crystal_diffusivity_field(D, micro, D_bulk, crystal_anisotropy=1.0):
     it, so the compiled forms are reused."""
     V = D.function_space
     gdim = V.mesh.geometry.dim
+    isotropic = crystal_anisotropy == 1.0
+    orientations = (
+        micro.orientations
+        if not isotropic and isinstance(micro, PlanarLatticeOrientations)
+        else None
+    )
+    if not isotropic and orientations is None:
+        raise ValueError("anisotropic lattice diffusivity requires planar orientations")
+
+    isotropic_tensor = np.eye(gdim) * D_bulk
     tensors = {}
     n = gdim * gdim
     for grain_id in micro.grain_ids:
-        tensor = crystal_tensor(
-            D_bulk, micro.orientations[grain_id - 1], crystal_anisotropy
-        )
-        if gdim == 3:
-            full = np.eye(3) * D_bulk
-            full[:2, :2] = tensor
-            tensor = full
+        tensor = isotropic_tensor.copy()
+        if orientations is not None:
+            tensor[:2, :2] = crystal_tensor(
+                D_bulk, orientations[grain_id - 1], crystal_anisotropy
+            )
         tensors[grain_id] = tensor
         cells = micro.cell_tags.find(grain_id)
         dofs = V.dofmap.list[cells].reshape(-1)

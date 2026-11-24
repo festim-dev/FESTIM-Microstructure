@@ -8,9 +8,11 @@ import numpy as np
 import pytest
 
 from festim_microstructure.microstructure import (
-    BoundaryNetwork,
+    BoundaryTopology,
+    GeometricBoundaryLocator,
     MeshedMicrostructure,
     Microstructure,
+    PlanarLatticeOrientations,
     TaggedPolycrystal,
 )
 from festim_microstructure.voronoi import VoronoiMicrostructure
@@ -56,11 +58,9 @@ def _meshed(**overrides):
         cell_tags=object(),
         facet_tags=None,
         gb_tag=None,
-        orientations=np.zeros(3),
         grain_ids=np.arange(1, 4),
         n_grains=3,
         tolerance=1e-9,
-        locator=lambda points: np.zeros(points.shape[1], dtype=bool),
         report=lambda: "",
     )
     attrs.update(overrides)
@@ -77,8 +77,7 @@ def test_missing_members_are_named_rather_than_just_rejected():
     """Verify missing members are named rather than just rejected."""
     stub = _meshed()
     del type(stub).facet_tags
-    del type(stub).locator
-    assert missing_members(stub, MeshedMicrostructure) == ["facet_tags", "locator"]
+    assert missing_members(stub, MeshedMicrostructure) == ["facet_tags"]
     assert not isinstance(stub, MeshedMicrostructure)
 
 
@@ -95,13 +94,16 @@ def test_dimension_agnostic_voronoi_fields():
     assert {"facet_tags", "gb_tag"} <= fields
 
 
-def test_ebsd_class_declares_the_whole_boundary_network_contract():
+def test_ebsd_class_declares_the_boundary_topology_and_mesh_contracts():
     """EBSD boundary edges supply the topology and disorientation fields."""
-    from festim_microstructure.meshing.ebsd import EbsdMicrostructure
+    from festim_microstructure.ebsd.topology import EbsdMicrostructure
 
-    assert missing_members(EbsdMicrostructure, BoundaryNetwork) == []
-    assert hasattr(EbsdMicrostructure, "network_entity_ids")
-    assert EbsdMicrostructure.network_length is EbsdMicrostructure.network_measure
+    assert missing_members(EbsdMicrostructure, BoundaryTopology) == []
+    assert missing_members(EbsdMicrostructure, MeshedMicrostructure) == []
+    assert missing_members(EbsdMicrostructure, PlanarLatticeOrientations) == [
+        "orientations"
+    ]
+    assert missing_members(EbsdMicrostructure, GeometricBoundaryLocator) == ["locator"]
 
 
 def test_tagged_polycrystal_satisfies_the_meshed_contract():
@@ -122,12 +124,19 @@ def test_tagged_polycrystal_fills_in_the_ids_and_the_orientations():
 
 
 def test_tagged_polycrystal_says_so_when_it_has_no_geometric_locator():
-    """Verify tagged polycrystal says so when it has no geometric locator."""
+    """A geometric network requires a configured locator."""
+    from types import SimpleNamespace
+
+    from festim_microstructure import grain_boundary_network
+
     poly = TaggedPolycrystal(
-        mesh=object(), cell_tags=object(), grain_ids=np.array([1]), gb_tag=[3, 4]
+        mesh=SimpleNamespace(topology=SimpleNamespace(dim=2)),
+        cell_tags=object(),
+        grain_ids=np.array([1]),
     )
-    with pytest.raises(TypeError, match="network_locator"):
-        poly.locator(np.zeros((3, 2)))
+    assert poly.locator is None
+    with pytest.raises(TypeError, match="requires facet tags or a callable locator"):
+        grain_boundary_network(2, poly, object())
 
 
 def test_tagged_polycrystal_uses_the_locator_it_was_given():

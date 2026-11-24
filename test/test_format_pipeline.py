@@ -5,13 +5,16 @@ import json
 import numpy as np
 import pytest
 
-from festim_microstructure.ebsd.convert import (
+from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
+from festim_microstructure.ebsd.grains import (
     CtfConversion,
     MeasureOptions,
     convert,
     measure_against_ctf,
 )
-from festim_microstructure.ebsd.diagnostics import verify_readback
+from festim_microstructure.ebsd.import_checks import verify_readback
+from festim_microstructure.ebsd.mesh_checks import area_change, overlay
+from festim_microstructure.ebsd.options import Settings, settings_from_provenance
 from festim_microstructure.ebsd.orientation import (
     ROT_X_180,
     cubic_disorientation_angle,
@@ -19,12 +22,9 @@ from festim_microstructure.ebsd.orientation import (
     qconj,
     qmul,
 )
-from festim_microstructure.ebsd.settings import Settings, settings_from_provenance
-from festim_microstructure.formats.ebsd import EbsdData, read_ebsd, write_ebsd
-from festim_microstructure.formats.msh4 import read_msh4
-from festim_microstructure.formats.provenance import read_provenance
-from festim_microstructure.meshing.diagnostics import area_change, overlay
-from festim_microstructure.meshing.upxo import resolve_python
+from festim_microstructure.ebsd.provenance import read_provenance
+from festim_microstructure.ebsd.upxo import resolve_python
+from festim_microstructure.msh4 import read_msh4
 
 
 @pytest.mark.skipif(
@@ -46,7 +46,7 @@ def test_ctf_conversion_provenance_and_readback(tmp_path):
     assert result.rms_deg < 1e-5
     np.testing.assert_array_equal(read_ebsd(result.archive).labels, np.ones((3, 4)))
     saved = read_provenance(result.provenance)
-    assert saved["version"] == 1
+    assert saved["version"] == 2
     assert saved["flip_y"] is True
     assert saved["ncells"] == 1
     settings = settings_from_provenance(result.provenance)
@@ -176,7 +176,7 @@ def test_laue_m3_is_rejected(tmp_path):
         convert(ctf, tmp_path / "map.npz", min_pixels=1, log=None)
 
 
-@pytest.mark.parametrize("version", [None, 2])
+@pytest.mark.parametrize("version", [None, 99])
 def test_provenance_requires_supported_version(tmp_path, version):
     """Unversioned or unsupported metadata must be regenerated."""
     record = {"ctf": "x.ctf"}

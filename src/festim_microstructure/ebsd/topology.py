@@ -1,13 +1,8 @@
-"""Mesh EBSD rasters and rebuild the 2D GB topology required by FESTIM.
-
-The pipeline imports CTF grains through UPXO/DefDAP, meshes with UPXO, and derives
-edge connectivity, disorientation, lengths, and junctions from the mesh.
-"""
+"""Reconstruct grain-boundary topology from the tagged EBSD mesh."""
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 from mpi4py import MPI
@@ -15,176 +10,13 @@ from mpi4py import MPI
 import dolfinx
 import numpy as np
 
-from festim_microstructure.ebsd import convert as ebsd_convert
-from festim_microstructure.ebsd.orientation import (
-    cubic_disorientation_angle,
-    qconj,
-    qmul,
-)
-from festim_microstructure.ebsd.settings import Settings
-from festim_microstructure.formats.ebsd import read_ebsd
-from festim_microstructure.meshing.diagnostics import (
-    AreaReportOptions,
-    measure,
-    overlay,
-)
-from festim_microstructure.meshing.upxo import UpxoMeshOptions, mesh_ebsd
-from festim_microstructure.plotting import draw_raster, scale_bar_ax, use_agg
+from festim_microstructure.microstructure import _global_tag_values
+from festim_microstructure.msh4 import read_mesh
 
-__all__ = [
-    "BoundaryEdges",
-    "EbsdMicrostructure",
-    "EbsdOptions",
-    "mesh_diagnostics",
-    "read_extent",
-    "run_ebsd_pipeline",
-    "unit_name",
-    "write_network_png",
-]
+from .archive import read_ebsd, read_extent
+from .orientation import cubic_disorientation_angle, qconj, qmul
 
-
-UNIT_NAMES = {1e-9: "nm", 1e-6: "um", 1e-3: "mm", 1.0: "m"}
-
-
-def unit_name(unit):
-    """Display label for a metres-per-source-coordinate scale."""
-    return UNIT_NAMES.get(unit, "source units")
-
-
-@dataclass
-class EbsdOptions:
-    """Full CTF → UPXO/DefDAP grains → UPXO mesh → FESTIM checks."""
-
-    ctf: str
-    unit: float = 1e-6
-    theta_min: float = 10.0
-    import_settings: Settings | None = None
-    mesh: UpxoMeshOptions | None = None
-    stem: str = "poly"
-    check_images: bool = True
-
-    def __post_init__(self):
-        if self.mesh is None:
-            self.mesh = UpxoMeshOptions()
-        if self.import_settings is None:
-            self.import_settings = Settings(ctf=str(self.ctf))
-        if Path(self.import_settings.ctf).resolve() != Path(self.ctf).resolve():
-            raise ValueError(
-                "ctf and import_settings.ctf must refer to the same source"
-            )
-        if not np.isfinite(self.unit) or self.unit <= 0:
-            raise ValueError("unit must be finite and positive")
-        if not np.isfinite(self.theta_min) or not 0 <= self.theta_min < 63:
-            raise ValueError("theta_min must be between 0 and 63 degrees")
-        if (
-            not self.stem
-            or Path(self.stem).name != self.stem
-            or self.stem in (".", "..")
-        ):
-            raise ValueError("stem must be a filename without directory components")
-
-
-def run_ebsd_pipeline(options, workdir: str | Path = "results", force=True):
-    """Import, mesh, check source geometry/orientations and load FESTIM tags.
-
-    Accepted meshes carry their native EBSD archive and SI metadata. Grain and
-    boundary tags are checked through the actual DOLFINx importer, and the
-    reconstructed FESTIM network is reported alongside geometry diagnostics.
-    """
-    options.__post_init__()
-    if not isinstance(options.mesh, UpxoMeshOptions):
-        raise TypeError("EbsdOptions.mesh must be UpxoMeshOptions")
-    # Only one rank imports/publishes files; all ranks load the accepted mesh.
-    # Propagate preparation failures before entering collective mesh import.
-    comm = MPI.COMM_WORLD
-    base, failure = None, None
-    if comm.rank == 0:
-        try:
-            workdir = Path(workdir)
-            workdir.mkdir(parents=True, exist_ok=True)
-            imported = ebsd_convert.convert(
-                settings=replace(
-                    options.import_settings,
-                    python=options.import_settings.python or options.mesh.python,
-                    diagnostics=options.import_settings.diagnostics
-                    or options.check_images,
-                ),
-                output=workdir / f"{options.stem}-import.npz",
-                force=force,
-            )
-            base = mesh_ebsd(
-                imported.archive,
-                replace(
-                    options.mesh,
-                    python=options.mesh.python or options.import_settings.python,
-                ),
-                workdir=workdir,
-                stem=options.stem,
-                unit=options.unit,
-                force=force,
-            )
-            mesh_diagnostics(
-                base, unit_name(options.unit), check_images=options.check_images
-            )
-        except Exception as exc:
-            failure = exc
-    base, failure = comm.bcast((base, failure), root=0)
-    if failure is not None:
-        raise failure
-    from festim_microstructure.formats.msh4 import read_mesh
-
-    mesh, cells, facets = read_mesh(base, gdim=2)
-    micro = EbsdMicrostructure.from_mesh(
-        base, mesh, cells, facets, read_extent(base), theta_min=options.theta_min
-    )
-    micro.check_orientations()
-    if mesh.comm.rank == 0:
-        report = dict(
-            n_grains=micro.n_grains,
-            n_edges=len(micro.edges),
-            interior_edges=int(micro.interior_mask.sum()),
-            surface_edges=micro.surface_edges,
-            triple_junctions=micro.triple_junctions,
-            theta_min=options.theta_min,
-            orientation_source=f"{base.name}-ebsd.npz",
-            extent_m=list(read_extent(base)),
-        )
-        Path(f"{base}-festim.json").write_text(json.dumps(report, indent=2) + "\n")
-    if options.check_images:
-        write_network_png(
-            base, mesh, micro, f"{base}-ebsd.npz", options.unit, unit_name(options.unit)
-        )
-    return base
-
-
-def read_extent(base):
-    """Domain width and height in metres from native mesh metadata."""
-    return tuple(json.loads(Path(f"{base}-metadata.json").read_text())["extent_m"])
-
-
-def mesh_diagnostics(base, unit_name="um", check_images=True):
-    """Compare final SI mesh with imported labels, in source display units."""
-    base = Path(base)
-    archive, msh4 = f"{base}-ebsd.npz", f"{base}.msh4"
-    scale = json.loads(Path(f"{base}-metadata.json").read_text())["unit"]
-    if check_images:
-        overlay(
-            archive,
-            msh4,
-            output=f"{base}-check-mesh.png",
-            unit=unit_name,
-            mesh_unit=scale,
-        )
-    return measure(
-        archive,
-        msh4,
-        AreaReportOptions(
-            csv=f"{base}-areachange.csv",
-            png=f"{base}-check-area.png" if check_images else None,
-            unit=unit_name,
-            mesh_unit=scale,
-        ),
-    )
+__all__ = ["BoundaryEdges", "EbsdMicrostructure"]
 
 
 def _ids(mask):
@@ -272,13 +104,13 @@ def _edge_extents(comm, mesh, facet_edge, fdim, fmap, n_edge):
     )
 
 
-def _edge_orientations(base, n_grain, pair, interior_mask):
+def _edge_orientations(base, max_grain_id, pair, interior_mask):
     """Native grain quaternions and boundary disorientations for this mesh."""
     data = read_ebsd(f"{base}-ebsd.npz")
-    if data.ncells != n_grain:
+    if data.ncells != max_grain_id:
         raise RuntimeError(
             f"native EBSD archive has {data.ncells} grains "
-            f"but mesh grain tags reach {n_grain}"
+            f"but mesh grain tags reach {max_grain_id}"
         )
     q = data.grain_quats
     theta = np.zeros(len(pair))
@@ -315,22 +147,34 @@ class EbsdMicrostructure:
     Facet tags identify boundaries and cell tags retain grain IDs. Grain
     orientations are the native archive's unit quaternions in Bunge convention.
     Junction counts are exact in serial and lower bounds in parallel.
-    Implements :class:`~festim_microstructure.microstructure.BoundaryNetwork`.
-
-    Build it with :meth:`from_mesh`; the constructor only stores the arrays that
-    reconstruction produced, so the class can be built in a test without a mesh,
-    a communicator or an orientation file.
+    Implements :class:`~festim_microstructure.microstructure.BoundaryTopology`.
+    Use :meth:`load` or :meth:`from_mesh` to reconstruct the boundary topology
+    and retain the mesh and its tags for FESTIM.
     """
 
     base: Path
     extent: tuple
-    n_grains: int
-    grain_quats: np.ndarray  #: (n_grains, 4), indexed by grain ID - 1
+    mesh: dolfinx.mesh.Mesh
+    cell_tags: dolfinx.mesh.MeshTags
+    facet_tags: dolfinx.mesh.MeshTags
+    grain_ids: np.ndarray
+    grain_quats: np.ndarray  #: Unit quaternions indexed by grain ID - 1
     facet_edge: np.ndarray  #: edge id per local facet, 0 off the network
     edges: BoundaryEdges
     triple_junctions: int
     surface_edges: int
     theta_min: float = 10.0
+
+    @classmethod
+    def load(cls, base, *, theta_min=10.0, comm=None, rank=0):
+        """Load the SI mesh, extent and orientation sidecars at the path stem.
+
+        When using a communicator, call this on all of its ranks. ``rank`` is
+        the rank that reads the Gmsh file, as in ``msh4.read_mesh``.
+        """
+        extent = read_extent(base)
+        mesh, cells, facets = read_mesh(base, gdim=2, comm=comm, rank=rank)
+        return cls.from_mesh(base, mesh, cells, facets, extent, theta_min=theta_min)
 
     @classmethod
     def from_mesh(
@@ -359,20 +203,24 @@ class EbsdMicrostructure:
         cell_grain = np.zeros(cmap.size_local + cmap.num_ghosts, dtype=np.int32)
         cell_grain[cell_tags.indices] = cell_tags.values
         n_edge = comm.allreduce(int(facet_edge.max(initial=0)), op=MPI.MAX)
-        n_grain = comm.allreduce(int(cell_grain.max(initial=0)), op=MPI.MAX)
-        if n_edge == 0 or n_grain == 0:
+        grain_ids = _global_tag_values(mesh, cell_tags)
+        max_grain_id = int(grain_ids.max(initial=0))
+        if n_edge == 0 or max_grain_id == 0:
             raise RuntimeError("the mesh carries no boundary or grain tags")
 
         pair, interior_mask = _edge_grain_pairs(
             comm, facet_edge, cell_grain, f2c, n_edge
         )
         length, ymin, ymax = _edge_extents(comm, mesh, facet_edge, fdim, fmap, n_edge)
-        grain_quats, theta = _edge_orientations(base, n_grain, pair, interior_mask)
+        grain_quats, theta = _edge_orientations(base, max_grain_id, pair, interior_mask)
 
         return cls(
             base=Path(base),
             extent=extent,
-            n_grains=n_grain,
+            mesh=mesh,
+            cell_tags=cell_tags,
+            facet_tags=facet_tags,
+            grain_ids=grain_ids,
             grain_quats=grain_quats,
             facet_edge=facet_edge,
             edges=BoundaryEdges(
@@ -391,6 +239,16 @@ class EbsdMicrostructure:
         )
 
     @property
+    def n_grains(self):
+        """Number of tagged grains in the mesh."""
+        return len(self.grain_ids)
+
+    @property
+    def tolerance(self):
+        """Distance tolerance for comparing coordinates in diagnostics."""
+        return 1e-9 * max(self.extent)
+
+    @property
     def interior_mask(self):
         """Mark edges shared by two grains rather than the exterior."""
         return self.edges.interior_mask
@@ -405,9 +263,10 @@ class EbsdMicrostructure:
         """1-based ids of the edges in the network."""
         return _ids(self.network_mask)
 
-    #: Dimension-specific spellings, kept so existing callers keep working.
-    network_edge_ids = network_ids
-    network_entity_ids = network_ids
+    @property
+    def gb_tag(self):
+        """Facet tag values for the selected grain-boundary network."""
+        return self.network_ids
 
     @property
     def theta(self):
@@ -418,9 +277,6 @@ class EbsdMicrostructure:
     def network_measure(self):
         """Total length of the boundaries in the network."""
         return float(self.edges.length[self.network_mask].sum())
-
-    #: The 2D spelling of :attr:`network_measure`.
-    network_length = network_measure
 
     def junction_only_below(self, y_top, tol=1e-12):
         """Deepest point reached by a boundary that touches the charged edge.
@@ -442,7 +298,7 @@ class EbsdMicrostructure:
         theta = self.theta[self.interior_mask]
         q = np.asarray(self.grain_quats)
         if (
-            q.shape != (self.n_grains, 4)
+            q.shape != (self.grain_ids[-1], 4)
             or not np.isfinite(q).all()
             or not np.allclose(np.linalg.norm(q, axis=1), 1.0)
             or not np.isfinite(theta).all()
@@ -478,57 +334,3 @@ class EbsdMicrostructure:
             f"  boundary length                 : {self.network_measure:.4g}",
         ]
         return "\n".join(lines)
-
-
-def write_network_png(base, mesh, micro, archive_path, unit=1e-6, unit_name="um"):
-    """Write ``<stem>-check-network.png`` with the boundaries FESTIM selects.
-
-    The background matches the mesh overlay. Retained interior boundaries are
-    coloured by disorientation, rejected boundaries are dashed white, and
-    specimen-surface edges are grey. Compare with ``<stem>-check-mesh.png`` to
-    inspect the disorientation filter and displacement from the source pixels.
-    """
-    if mesh.comm.size > 1:
-        return
-    import matplotlib.pyplot as plt
-    from matplotlib.collections import LineCollection
-
-    use_agg()
-    base = Path(base)
-    data = read_ebsd(archive_path)
-    cells, vox = data.labels, data.vox
-    fdim = mesh.topology.dim - 1
-    owned = np.arange(mesh.topology.index_map(fdim).size_local, dtype=np.int32)
-    owned = owned[micro.facet_edge[owned] > 0]
-    nodes = dolfinx.mesh.entities_to_geometry(mesh, fdim, owned, False)
-    segs = mesh.geometry.x[nodes][:, :, :2] / unit  # back to source units
-    e = micro.facet_edge[owned] - 1
-    surface = ~micro.interior_mask[e]
-    kept = micro.network_mask[e]
-    dropped = ~surface & ~kept
-
-    ny, nx = cells.shape
-    fig, ax = plt.subplots(figsize=(8, 8 * ny * vox[1] / (nx * vox[0])))
-    draw_raster(ax, cells, vox)
-    ax.add_collection(LineCollection(segs[surface], colors="0.6", lw=0.7))
-    ax.add_collection(
-        LineCollection(segs[dropped], colors="white", lw=1.3, linestyles="--")
-    )
-    net = LineCollection(segs[kept], cmap="inferno", lw=1.8)
-    net.set_array(micro.theta[e[kept]])
-    net.set_clim(micro.theta_min, 62.8)
-    ax.add_collection(net)
-    fig.colorbar(net, ax=ax, fraction=0.046).set_label("theta (deg)")
-    n_kept, n_int = int(micro.network_mask.sum()), int(micro.interior_mask.sum())
-    ax.set_title(
-        f"network used by FESTIM: {n_kept} of {n_int} boundaries above "
-        f"{micro.theta_min:g} deg\n(dashed white = dropped, grey = specimen surface)"
-    )
-    ax.set_xlabel(f"x ({unit_name})")
-    ax.set_ylabel(f"y ({unit_name})")
-    scale_bar_ax(ax, nx * vox[0], unit_name)
-    fig.tight_layout()
-    out = Path(f"{base}-check-network.png")
-    fig.savefig(out, dpi=150)
-    plt.close(fig)
-    print(f"  wrote {out}")

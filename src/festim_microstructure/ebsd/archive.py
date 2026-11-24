@@ -1,11 +1,12 @@
 """Versioned EBSD arrays, independent of the importer and simulation stack."""
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
-__all__ = ["EbsdData", "read_ebsd", "write_ebsd"]
+__all__ = ["EbsdData", "read_ebsd", "read_extent", "write_ebsd"]
 
 
 @dataclass
@@ -131,3 +132,8 @@ def read_ebsd(path):
             },
             crysym=str(arrays["crysym"]),
         )
+
+
+def read_extent(base):
+    """Domain width and height in metres from native mesh metadata."""
+    return tuple(json.loads(Path(f"{base}-metadata.json").read_text())["extent_m"])

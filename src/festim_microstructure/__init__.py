@@ -1,11 +1,9 @@
 """Microstructures for FESTIM: meshes, tagged subdomains, coefficient fields.
 
 The package creates and interprets polycrystals -- Voronoi and EBSD --
-converts them into FESTIM subdomains and diffusivity fields, and supplies the
-post-processing a grain-boundary study needs. The transport model itself is
-declared with FESTIM: species, exchange terms, boundary conditions, settings
-and solving are ``festim.HydrogenTransportProblemDiscontinuous``'s, exactly as
-in its manifold documentation. See ``examples/`` for the pattern.
+converts them into FESTIM subdomains and diffusivity fields, and supplies common
+declarations and post-processing for grain-boundary transport. The caller builds
+and runs the transport problem with FESTIM. See ``examples/`` for the pattern.
 
 The public API uses ordinary imports and requires the FESTIM/DOLFINx stack.
 """
@@ -15,18 +13,24 @@ from . import (
     ebsd,
     exports,
     fem,
-    formats,
     materials,
-    meshing,
     microstructure,
-    plotting,
+    msh4,
     voronoi,
 )
-from .fem.subdomains import Grain, GrainBoundaryNetwork, GrainSurface
-from .meshing.ebsd import EbsdMicrostructure, EbsdOptions
-from .meshing.upxo import UpxoMeshOptions
+from .ebsd import EbsdMicrostructure, EbsdOptions, UpxoMeshOptions, run_ebsd_pipeline
+from .fem import (
+    Grain,
+    GrainBoundaryNetwork,
+    GrainBoundarySystem,
+    GrainSurface,
+    grain_boundary_network,
+    grain_subdomains,
+    grain_surfaces,
+)
+from .materials import crystal_diffusivity_field
 from .microstructure import (
-    BoundaryNetwork,
+    BoundaryTopology,
     MeshedMicrostructure,
     Microstructure,
     TaggedPolycrystal,
@@ -39,11 +43,12 @@ except ImportError:
     __version__ = "0+unknown"
 
 __all__ = [
-    "BoundaryNetwork",
+    "BoundaryTopology",
     "EbsdMicrostructure",
     "EbsdOptions",
     "Grain",
     "GrainBoundaryNetwork",
+    "GrainBoundarySystem",
     "GrainSurface",
     "MeshSizing",
     "MeshedMicrostructure",
@@ -53,13 +58,16 @@ __all__ = [
     "VoronoiMicrostructure",
     "__version__",
     "check",
+    "crystal_diffusivity_field",
     "ebsd",
     "exports",
     "fem",
-    "formats",
+    "grain_boundary_network",
+    "grain_subdomains",
+    "grain_surfaces",
     "materials",
-    "meshing",
     "microstructure",
-    "plotting",
+    "msh4",
+    "run_ebsd_pipeline",
     "voronoi",
 ]

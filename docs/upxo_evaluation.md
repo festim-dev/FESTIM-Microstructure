@@ -1,5 +1,8 @@
 # UPXO 2D EBSD meshing evaluation
 
+See the [EBSD workflow guide](ebsd_workflow.md) for the user-facing pipeline,
+mesh options, and provenance.
+
 **Result: the 2D EBSD pathway uses pinned UPXO 1.3.1 with explicit pixel
 seeds and FESTIM’s export adapter. Exact polygons pass all eight fixtures;
 gentle Taubin passes the real crop and six synthetic fixtures. Serial
@@ -160,7 +163,7 @@ passed **27 tests**, with that same optional-dependency skip.
 ### Real measured map
 
 The input was `examples/data/D7 PBF SS316L.ctf`, using the existing example's
-crop `0,306,0,306`, `min_pixels=15`, `max_mad=1.5`, `allow_error=True`, and
+crop `(0, 306, 0, 306)`, `min_pixels=15`, `max_mad=1.5`, `allow_error=True`, and
 10-degree segmentation threshold. Filling rejected pixels remained enabled;
 no label topology repair was applied.
 

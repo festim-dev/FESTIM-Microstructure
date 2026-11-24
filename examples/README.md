@@ -5,16 +5,10 @@ reproductions. They are intentionally not included in the installed
 `festim_microstructure` API: their defaults, outputs, figures, and input data
 belong to a particular study rather than being stable library contracts.
 
-Import the package as `import festim_microstructure as fm`. Use curated names
-such as `fm.VoronoiMicrostructure`, `fm.TaggedPolycrystal` and
-`fm.GrainBoundaryNetwork`, and access specialised helpers through namespaces
-such as `fm.voronoi`, `fm.meshing`, `fm.fem`, `fm.materials`, `fm.formats`, and
-`fm.exports`. The transport model in every script is declared with FESTIM
-directly -- species, exchange terms, boundary conditions, settings, the
-`HydrogenTransportProblemDiscontinuous` -- following FESTIM's manifold
-documentation; the package supplies the subdomains, the coefficient fields and
-the post-processing. `gb_homogenisation.py` contains the complete RVE study,
-sharing one cell-problem declaration across identification and validation.
+The grain-boundary examples use `fm.GrainBoundarySystem` to build subdomains,
+species, and exchange terms. Each script assembles and runs its FESTIM problem.
+`gb_homogenisation.py` contains the complete RVE study and shares one
+cell-problem declaration across identification and validation.
 
 - `voronoi_polycrystal_2d.py` and `voronoi_polycrystal_3d.py` demonstrate
   short-circuit diffusion.
@@ -37,7 +31,8 @@ chain. It writes `results/ebsd_ctf_to_mesh/poly.msh4` in metres, with native
 `poly-ebsd.npz` grain/pixel data, SI extent metadata, source provenance, and
 validation reports. It also generates quality, orientation, mesh, area and
 FESTIM network images. `ebsd_gb_diffusion.py` reads these prepared files; its
-simulation exports go to `results/ebsd_gb_diffusion/`.
+simulation exports go to `results/ebsd_gb_diffusion/`. See the
+[EBSD workflow guide](../docs/ebsd_workflow.md) for import settings and files.
 Activate the environment in `environment.yml`.
 The original CTF stays in `examples/data/`.
 

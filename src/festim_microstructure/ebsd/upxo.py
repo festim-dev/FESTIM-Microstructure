@@ -17,14 +17,13 @@ import subprocess
 import sys
 import tempfile
 from collections import defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
 
 __all__ = [
-    "UpxoMeshOptions",
     "import_ebsd",
     "mesh_ebsd",
     "probe_worker",
@@ -34,53 +33,12 @@ UPXO_VERSION = "1.3.1"
 DEFDAP_VERSION = "0.93.6"
 UPXO_REVISION = "a53885ef0a7a06f6b3fb195747363ae0a19bb127"
 _PROTOCOL = 4
+DEFAULT_WORKER_TIMEOUT = 600.0
 
 
-@dataclass
-class UpxoMeshOptions:
-    """UPXO mesh sizes and controlled smoothing, measured in pixel coordinates.
-
-    ``smoothing='none'`` preserves the raster boundaries exactly. Taubin uses
-    explicit pixel seeds and disables grain merging and diagonal repairs.
-    ``thin_grain_px`` enables optional thin-grain protection without changing
-    pixel labels. For unfilled voids, use ``smoothing="none"``.
-    Geometry that fails the preservation checks raises before publication.
-    """
-
-    smoothing: str = "taubin"
-    smooth_iter: int = 5
-    smooth_lambda: float = 0.25
-    smooth_mu: float = -0.265
-    thin_grain_px: float = 0.0
-    mesh_size_gb: float = 0.75
-    mesh_size_bulk: float = 4.5
-    n_threads: int = 1
-    max_area_change: float = 0.05
-    max_boundary_displacement: float = 1.0
-    python: str | None = None
-    timeout: float = 600.0
-
-    def __post_init__(self):
-        if self.smoothing not in ("none", "taubin"):
-            raise ValueError("smoothing must be 'none' or 'taubin'")
-        for name in ("smooth_iter", "n_threads"):
-            value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, int):
-                raise ValueError(f"{name} must be an integer")
-        if self.smooth_iter < 0 or self.n_threads < 1:
-            raise ValueError("smooth_iter must be >= 0 and n_threads must be >= 1")
-        for name in ("mesh_size_gb", "mesh_size_bulk", "timeout"):
-            value = getattr(self, name)
-            if not np.isfinite(value) or value <= 0:
-                raise ValueError(f"{name} must be finite and positive")
-        for name in ("max_area_change", "max_boundary_displacement", "thin_grain_px"):
-            value = getattr(self, name)
-            if not np.isfinite(value) or value < 0:
-                raise ValueError(f"{name} must be finite and nonnegative")
-        if not 0 < self.smooth_lambda < 1 or not -1 < self.smooth_mu < 0:
-            raise ValueError(
-                "Taubin requires 0 < smooth_lambda < 1 and -1 < smooth_mu < 0"
-            )
+def _validate_timeout(timeout):
+    if not np.isfinite(timeout) or timeout <= 0:
+        raise ValueError("worker timeout must be finite and positive")
 
 
 def resolve_python(explicit=None, required=True):
@@ -214,7 +172,15 @@ def _environment_report(*, health=False):
 
 
 def mesh_ebsd(
-    archive, options=None, *, workdir="results", stem="poly", unit=1e-6, force=True
+    archive,
+    options=None,
+    *,
+    workdir="results",
+    stem="poly",
+    unit=1e-6,
+    force=True,
+    python=None,
+    timeout=DEFAULT_WORKER_TIMEOUT,
 ):
     """Mesh a native EBSD archive and write tagged SI and diagnostic outputs.
 
@@ -223,7 +189,10 @@ def mesh_ebsd(
     Failed runs leave previously
     accepted outputs intact and keep a log and validation report for diagnosis.
     """
-    from festim_microstructure.formats.ebsd import read_ebsd
+    from .archive import read_ebsd
+    from .options import UpxoMeshOptions
+
+    _validate_timeout(timeout)
 
     options = options or UpxoMeshOptions()
     options.__post_init__()
@@ -234,16 +203,18 @@ def mesh_ebsd(
     archive = Path(archive).resolve()
     data = read_ebsd(archive)
     labels, vox = data.labels, np.asarray(data.vox)
-    executable = resolve_python(options.python)
+    executable = resolve_python(python)
     base = Path(workdir).resolve() / stem
     base.parent.mkdir(parents=True, exist_ok=True)
     settings = asdict(options)
-    settings["python"] = executable
     identity = {
         "protocol": _PROTOCOL,
         "upxo_revision": UPXO_REVISION,
-        "worker_environment": probe_worker(executable, timeout=options.timeout),
-        "worker_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "worker_environment": probe_worker(executable, timeout=timeout),
+        "worker_sha256": hashlib.sha256(
+            Path(__file__).read_bytes()
+            + Path(__file__).with_name("options.py").read_bytes()
+        ).hexdigest(),
         "input_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
         "options": settings,
         "unit": unit,
@@ -286,7 +257,7 @@ def mesh_ebsd(
                     ],
                     stdout=stream,
                     stderr=subprocess.STDOUT,
-                    timeout=options.timeout,
+                    timeout=timeout,
                     check=True,
                 )
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
@@ -296,7 +267,7 @@ def mesh_ebsd(
                     shutil.copyfile(failed, f"{base}-failed-validation.json")
                     reason = json.loads(failed.read_text()).get("error", reason)
                 if isinstance(exc, subprocess.TimeoutExpired):
-                    reason = f"exceeded {options.timeout:g} seconds"
+                    reason = f"exceeded {timeout:g} seconds"
                 raise RuntimeError(f"UPXO meshing failed: {reason}; see {log}") from exc
         shutil.copyfile(archive, stage / f"{stem}-ebsd.npz")
         outputs = {
@@ -698,14 +669,14 @@ def _worker(request):
 
     request = Path(request)
     config = json.loads(request.read_text())
-    options = UpxoMeshOptions(**config["options"])
+    options = config["options"]
     directory, stem = request.parent, config["stem"]
     data = np.load(directory / "input.npz")
     labels, vox = data["labels"], data["vox"]
     report = {
         "accepted": False,
         "upxo_version": importlib.metadata.version("upxo"),
-        "options": asdict(options),
+        "options": options,
     }
     distribution = importlib.metadata.distribution("upxo")
     origin = distribution.read_text("direct_url.json")
@@ -721,22 +692,22 @@ def _worker(request):
         _check_compatibility()
         reference = raster_polygons(labels)
         cells = reference
-        if options.smoothing == "taubin" and options.smooth_iter:
+        if options["smoothing"] == "taubin" and options["smooth_iter"]:
             from upxo.pxtalops.gssmooth2d import smooth_gs_slice
 
             smooth = smooth_gs_slice(
                 labels,
                 seeds=pixel_seeds(labels.shape),
                 area_threshold=0,
-                smooth_iter=options.smooth_iter,
-                smooth_lambda=options.smooth_lambda,
-                smooth_mu=options.smooth_mu,
+                smooth_iter=options["smooth_iter"],
+                smooth_lambda=options["smooth_lambda"],
+                smooth_mu=options["smooth_mu"],
                 method="taubin",
                 trim_bounds=(0, 0, labels.shape[1], labels.shape[0]),
                 fix_diagonal=False,
                 merge_enclosed=False,
                 jitter_factor=0,
-                thin_grain_px=options.thin_grain_px,
+                thin_grain_px=options["thin_grain_px"],
                 close_staircase=False,
             )
             inverse = {new: old for old, new in smooth["old_to_new_gid"].items()}
@@ -746,7 +717,10 @@ def _worker(request):
                 if inverse[gid] > 0
             }
         report["geometry"] = geometry_metrics(
-            reference, cells, options.max_area_change, options.max_boundary_displacement
+            reference,
+            cells,
+            options["max_area_change"],
+            options["max_boundary_displacement"],
         )
         _save_json(validation, report)
         if not report["geometry"]["accepted"]:
@@ -760,12 +734,12 @@ def _worker(request):
         mesher.femesh_gmsh(
             flat,
             gid_map=gid_map,
-            mesh_size_gb=options.mesh_size_gb,
-            mesh_size_bulk=options.mesh_size_bulk,
+            mesh_size_gb=options["mesh_size_gb"],
+            mesh_size_bulk=options["mesh_size_bulk"],
             mesh_algo=6,
             mesh_order=1,
             recombine_to_quads=False,
-            n_threads=options.n_threads,
+            n_threads=options["n_threads"],
         )
         report["mesh"] = mesh_metrics(mesher, cells)
         arcs, _ = boundary_arcs(
@@ -795,7 +769,16 @@ def _worker(request):
         _save_json(validation, report)
 
 
-def import_ebsd(ctf, window, indexed, settings, log=print):
+def import_ebsd(
+    ctf,
+    window,
+    indexed,
+    settings,
+    log=print,
+    *,
+    python=None,
+    timeout=DEFAULT_WORKER_TIMEOUT,
+):
     """Canonicalize the cropped, filtered CTF and invoke UPXO's EBSDReader.
 
     DefDAP's text loader reshapes file rows and uses a scalar XStep. Reorder
@@ -803,7 +786,8 @@ def import_ebsd(ctf, window, indexed, settings, log=print):
     both pixel spacings in the native archive. Phase/quality rejections become
     phase zero before detection, so they cannot bridge surviving grains.
     """
-    executable = resolve_python(settings.python)
+    _validate_timeout(timeout)
+    executable = resolve_python(python)
     with tempfile.TemporaryDirectory(prefix="upxo-import-") as scratch:
         stage = Path(scratch)
         ny, nx = indexed.shape
@@ -875,7 +859,7 @@ def import_ebsd(ctf, window, indexed, settings, log=print):
                     check=True,
                     stdout=stream,
                     stderr=subprocess.STDOUT,
-                    timeout=settings.timeout,
+                    timeout=timeout,
                 )
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
                 raise RuntimeError(

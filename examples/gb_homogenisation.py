@@ -17,6 +17,7 @@ from mpi4py import MPI
 
 import dolfinx
 import festim as F
+import matplotlib as mpl
 import numpy as np
 from matplotlib.collections import LineCollection
 from matplotlib.colors import LinearSegmentedColormap
@@ -26,9 +27,6 @@ from matplotlib.projections.polar import PolarAxes
 import festim_microstructure as fm
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "results" / Path(__file__).stem
-
-NETWORK_ID = 1_000_000  # above every grain id; a manifold shares the surface ids
-SURFACE_ID_0 = 2_000_000  # the per-grain surface patches are numbered from here
 
 # The problem is unscaled (D ~ 1e-11 m2/s, cell area ~ 1e-11 m2), so the Newton
 # residual of a converged step is itself ~1e-12 and FESTIM's default atol stalls
@@ -75,7 +73,7 @@ class Transport:
 
     def report(self, grain_size=None):
         """Summarize transport properties and optional interface resistance."""
-        length = fm.materials.equilibration_length(self.delta, self.D_gb, self.k)
+        length = np.sqrt(self.delta * self.D_gb / (2 * self.k))
         lines = [
             f"transport at T = {self.T:g} K",
             f"  D_bulk (orientation average)   : {self.D_bulk:.3e} m2/s",
@@ -87,9 +85,7 @@ class Transport:
             f"  equilibration length           : {1e9 * length:.3g} nm",
         ]
         if grain_size is not None:
-            ratio = fm.materials.interface_resistance_ratio(
-                self.k, grain_size, self.D_bulk
-            )
+            ratio = (2.0 / self.k) / (grain_size / self.D_bulk)
             lines.append(f"  interface / lattice resistance : {ratio:.3e}")
         return "\n".join(lines)
 
@@ -101,116 +97,59 @@ class CellProblem:
     model: F.HydrogenTransportProblemDiscontinuous
     micro: fm.VoronoiMicrostructure
     transport: Transport
-    grains: list
-    species: list  # one per grain, aligned
+    system: fm.GrainBoundarySystem
     tensors: dict  # grain id -> lattice tensor
-    network: fm.GrainBoundaryNetwork
-    c_gb: F.Species
 
     def averages(self, window=None):
         """Flux, gradient and measure, delegated to the package."""
-        t = self.transport
+        system = self.system
         return fm.exports.averages.averages(
-            self.grains,
-            self.species,
+            system.grains,
+            system.grain_species,
             self.tensors,
-            self.network,
-            self.c_gb,
-            t.delta,
-            t.D_gb,
+            system.network,
+            system.c_gb,
+            self.transport.delta,
+            self.transport.D_gb,
             window,
-        )
-
-    def inventory(self):
-        """Compute total grain and boundary hydrogen inventory."""
-        return fm.exports.averages.inventory(
-            self.grains, self.species, self.network, self.c_gb, self.transport.delta
         )
 
     def solve(self):
         """Initialize and run the cell problem, then return it."""
         self.model.initialise()
-        fm.fem.solvers.tune_direct_solver(self.model)  # MUMPS workspace
+        fm.fem.tune_direct_solver(self.model)
         self.model.run()
         return self
 
 
 def cell_problem(micro, transport, bcs, settings=None):
-    """Declare the grain/network problem for ``micro`` under ``bcs``.
-
-    ``bcs`` is a list of ``(locator, value)`` pairs; each is applied to every
-    grain touching that surface and to the network's mouths on it. Every grain
-    is a ``VolumeSubdomain`` with a ``Species`` of its own, the network is one
-    codim-1 subdomain with one species, and each grain exchanges
-    ``k (c_grain - c_gb)`` with the boundary slab: a ``ParticleFluxBC`` on the
-    grain and, since the network equation is written per unit slab width, a
-    ``ParticleSource`` of ``k / delta`` times the same jump on the network.
-    Steady by default; pass ``settings`` for a transient.
-    """
-    mesh = micro.mesh
-    D_lattice, tensors = fm.materials.crystal_diffusivity_field(
+    """Declare transport with a list of (locator, concentration) pairs."""
+    D_lattice, tensors = fm.crystal_diffusivity_field(
         micro, transport.D_bulk, transport.crystal_anisotropy
     )
-    grains = fm.fem.subdomains.grain_subdomains(micro, F.Material(D=D_lattice))
-    network = fm.fem.subdomains.grain_boundary_network(
-        NETWORK_ID, micro, F.Material(D_0=transport.D_gb, E_D=0.0)
+    system = fm.GrainBoundarySystem(
+        micro,
+        F.Material(D=D_lattice),
+        F.Material(D_0=transport.D_gb, E_D=0.0),
+        width=transport.delta,
     )
-    grain_species = [F.Species(f"c_{g.id}", subdomains=[g]) for g in grains]
-    c_gb = F.Species("c_gb", subdomains=[network])
-    species_of = dict(zip((g.id for g in grains), grain_species, strict=True))
-
-    k = dolfinx.fem.Constant(mesh, transport.k)
-    width = dolfinx.fem.Constant(mesh, transport.delta)
-    sources, boundary_conditions = [], []
-    for c_grain in grain_species:
-        exchange = {"c_g": c_grain, "c_n": c_gb}
-        sources.append(
-            F.ParticleSource(
-                value=lambda c_g, c_n: (k / width) * (c_g - c_n),
-                species=c_gb,
-                volume=network,
-                species_dependent_value=exchange,
-            )
-        )
-        boundary_conditions.append(
-            F.ParticleFluxBC(
-                subdomain=network,
-                species=c_grain,
-                value=lambda c_g, c_n: k * (c_n - c_g),
-                species_dependent_value=exchange,
-            )
-        )
-
-    subdomains = [*grains, network]
-    next_id = SURFACE_ID_0
+    sources, boundary_conditions = system.exchange(transport.k)
+    subdomains = system.subdomains
     for locator, value in bcs:
-        patches, mouths = fm.fem.subdomains.grain_surfaces(
-            mesh, grains, locator, next_id
-        )
-        next_id = mouths.id + 1
-        subdomains += [*patches, mouths]
-        boundary_conditions += [
-            F.FixedConcentrationBC(
-                subdomain=p, value=value, species=species_of[p.grain_id]
-            )
-            for p in patches
-        ]
-        boundary_conditions.append(
-            F.FixedConcentrationBC(subdomain=mouths, value=value, species=c_gb)
-        )
+        surfaces, fixed = system.fixed_concentration(locator, value)
+        subdomains.extend(surfaces)
+        boundary_conditions.extend(fixed)
 
     model = F.HydrogenTransportProblemDiscontinuous(
-        mesh=F.Mesh(mesh),
+        mesh=F.Mesh(micro.mesh),
         subdomains=subdomains,
-        species=[*grain_species, c_gb],
+        species=system.species,
         sources=sources,
         boundary_conditions=boundary_conditions,
         temperature=transport.T,
         settings=settings or F.Settings(atol=ATOL, rtol=RTOL, transient=False),
     )
-    return CellProblem(
-        model, micro, transport, grains, grain_species, tensors, network, c_gb
-    )
+    return CellProblem(model, micro, transport, system, tensors)
 
 
 def make_microstructure(size, grain_size, aspect=1.0, seed=0, cells_per_grain=10):
@@ -325,10 +264,15 @@ def identify(
         Q_cell[:, j], H_cell[:, j] = q, g
         q_w, g_w, _ = cp.averages(window=window)
         Q_win[:, j], H_win[:, j] = q_w, g_w
+        system = cp.system
         eq_error = max(
             eq_error,
             fm.exports.averages.equilibrium_error(
-                cp.grains, cp.species, cp.network, cp.c_gb, micro.tolerance
+                system.grains,
+                system.grain_species,
+                system.network,
+                system.c_gb,
+                micro.tolerance,
             ),
         )
         hart = hart_bound(cp)
@@ -341,7 +285,11 @@ def identify(
             # the grains as one discontinuous parent field (so the jumps show),
             # and the network as a line dataset
             fm.exports.averages.write_vtx(
-                cp.grains, cp.species, cp.network, cp.c_gb, f"{export_prefix}_{'xy'[j]}"
+                system.grains,
+                system.grain_species,
+                system.network,
+                system.c_gb,
+                f"{export_prefix}_{'xy'[j]}",
             )
         if verbose:
             print(f"    solved cell problem G = e_{'xy'[j]}", flush=True)
@@ -474,7 +422,7 @@ def uptake(micro, transport, D_eff, n_steps=60, verbose=True):
     # FESTIM creates progress_bar in run(), which this manual stepping skips.
     cp.model.show_progress_bar = False
     cp.model.initialise()  # the stepping is driven here rather than by run()
-    fm.fem.solvers.tune_direct_solver(cp.model)
+    fm.fem.tune_direct_solver(cp.model)
 
     homogeneous, c, volume, _ = homogeneous_model(
         size,
@@ -494,7 +442,7 @@ def uptake(micro, transport, D_eff, n_steps=60, verbose=True):
         cp.model.iterate()
         homogeneous.iterate()
         times.append(float(cp.model.t))
-        micro_inventory.append(cp.inventory())
+        micro_inventory.append(cp.system.inventory())
         model_inventory.append(float(total.value))
         if verbose and len(times) % 10 == 0:
             print(
@@ -532,6 +480,7 @@ BLUES = LinearSegmentedColormap.from_list("blues", SEQUENTIAL)
 
 STYLE = {
     "figure.facecolor": SURFACE,
+    "figure.titlesize": 16,
     "axes.facecolor": SURFACE,
     "savefig.facecolor": SURFACE,
     "font.size": 9,
@@ -623,7 +572,8 @@ def network_flux_segments(cp, scale):
     number exceeds the grain width is moving more hydrogen than a whole grain of
     lattice beside it.
     """
-    c = cp.c_gb.subdomain_to_post_processing_solution[cp.network]
+    system = cp.system
+    c = system.c_gb.subdomain_to_post_processing_solution[system.network]
     V = c.function_space
     coords = V.tabulate_dof_coordinates()
     cells = V.dofmap.list
@@ -1086,9 +1036,9 @@ def validate(micro, transport, ident, path, n_steps=60, skip_transient=False):
 
 def render_figures(record, validation=None, field_case=None):
     """Render saved summaries and, optionally, fields captured during fitting."""
-    plt = fm.plotting.use_agg()
+    mpl.use("Agg")
     written = []
-    with plt.rc_context(STYLE):
+    with mpl.rc_context(STYLE):
         identifications = record["identifications"]
         if identifications:
             biggest = max(identifications, key=lambda i: i["size"])

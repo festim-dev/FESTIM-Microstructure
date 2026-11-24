@@ -25,9 +25,6 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "results" / Path(__file__).stem
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 LEFT, RIGHT = 1, 2  # grain tags either side of the boundary at x = 0
-NETWORK_ID = 1_000_000  # above every grain id; a manifold shares the surface ids
-SURFACE_ID_0 = 2_000_000  # the per-grain surface patches are numbered from here
-
 
 def eval_on(fn, points):
     """Evaluate a fenics Function at a list of (x, y, 0) points."""
@@ -95,68 +92,45 @@ micro = fm.TaggedPolycrystal(
 
 # The transport model, as FESTIM declarations. E_D = 0 on both phases: the
 # Arrhenius factor is already included above.
-D_lattice, _ = fm.materials.crystal_diffusivity_field(micro, D_B)
-grains = fm.fem.subdomains.grain_subdomains(micro, F.Material(D=D_lattice))
-network = fm.fem.subdomains.grain_boundary_network(
-    NETWORK_ID, micro, F.Material(D_0=D_GB, E_D=0.0)
+D_lattice, _ = fm.crystal_diffusivity_field(micro, D_B)
+system = fm.GrainBoundarySystem(
+    micro,
+    F.Material(D=D_lattice),
+    F.Material(D_0=D_GB, E_D=0.0),
+    width=delta,
 )
-grain_species = [F.Species(f"c_{g.id}", subdomains=[g]) for g in grains]
-cgb_species = F.Species("c_gb", subdomains=[network])
-species_of = dict(zip((g.id for g in grains), grain_species, strict=True))
-
-# Large ``k`` approaches Fisher's local-equilibrium assumption.
-k = dolfinx.fem.Constant(mesh, k_exchange)
-width = dolfinx.fem.Constant(mesh, delta)
-sources, boundary_conditions = [], []
-for c_grain in grain_species:
-    exchange = {"c_g": c_grain, "c_n": cgb_species}
-    sources.append(
-        F.ParticleSource(
-            value=lambda c_g, c_n: (k / width) * (c_g - c_n),
-            species=cgb_species,
-            volume=network,
-            species_dependent_value=exchange,
-        )
-    )
-    boundary_conditions.append(
-        F.ParticleFluxBC(
-            subdomain=network,
-            species=c_grain,
-            value=lambda c_g, c_n: k * (c_n - c_g),
-            species_dependent_value=exchange,
-        )
-    )
-
-charged = lambda x: np.isclose(x[1], 0.0, atol=1e-11)  # noqa: E731
-patches, mouths = fm.fem.subdomains.grain_surfaces(mesh, grains, charged, SURFACE_ID_0)
-boundary_conditions += [
-    F.FixedConcentrationBC(subdomain=p, value=c0, species=species_of[p.grain_id])
-    for p in patches
-]
-boundary_conditions.append(
-    F.FixedConcentrationBC(subdomain=mouths, value=c0, species=cgb_species)
+# Large k approaches Fisher's local-equilibrium assumption.
+sources, flux_bcs = system.exchange(k_exchange)
+surfaces, surface_bcs = system.fixed_concentration(
+    lambda x: np.isclose(x[1], 0.0, atol=1e-11), c0
 )
 
 model = F.HydrogenTransportProblemDiscontinuous(
     mesh=F.Mesh(mesh),
-    subdomains=[*grains, network, *patches, mouths],
-    species=[*grain_species, cgb_species],
+    subdomains=[*system.subdomains, *surfaces],
+    species=system.species,
     sources=sources,
-    boundary_conditions=boundary_conditions,
+    boundary_conditions=[*flux_bcs, *surface_bcs],
     temperature=T,
     settings=F.Settings(
         atol=1e-8, rtol=1e-6, transient=True, final_time=t_end, stepsize=dt
     ),
 )
 model.initialise()
-fm.fem.solvers.tune_direct_solver(model)
+fm.fem.tune_direct_solver(model)
 model.run()
 fm.exports.averages.write_vtx(
-    grains, grain_species, network, cgb_species, OUTPUT_DIR / "fisher", time=t_end
+    system.grains,
+    system.grain_species,
+    system.network,
+    system.c_gb,
+    OUTPUT_DIR / "fisher",
+    time=t_end,
 )
 
-cb_fn = species_of[RIGHT].subdomain_to_post_processing_solution[grains[RIGHT - 1]]
-cg_fn = cgb_species.subdomain_to_post_processing_solution[network]
+right = system.grains[RIGHT - 1]
+cb_fn = system.grain_species[RIGHT - 1].subdomain_to_post_processing_solution[right]
+cg_fn = system.c_gb.subdomain_to_post_processing_solution[system.network]
 
 # Analysis
 order = np.argsort(cg_fn.function_space.tabulate_dof_coordinates()[:, 1])
@@ -209,8 +183,9 @@ slope, intercept = np.polyfit(depths**1.2, np.log(cbar), 1)
 residual = np.abs(np.log(cbar) - (slope * depths**1.2 + intercept)).max()
 recovered = 1.322 * np.sqrt(D_B / t_end) * (-slope) ** (-5.0 / 3.0)
 
-alpha = delta / (2 * np.sqrt(D_B * t_end))
-beta = fm.materials.beta_parameter(delta, D_GB, D_B, t_end)
+# Le Claire (1963), Br. J. Appl. Phys. 14, 351.
+alpha = delta / bulk_only
+beta = delta * (D_GB / D_B - 1) / bulk_only
 print(
     f"\nLe Claire analysis (valid for alpha << 1, beta >> 1: "
     f"alpha = {alpha:.3f}, beta = {beta:.0f})"
