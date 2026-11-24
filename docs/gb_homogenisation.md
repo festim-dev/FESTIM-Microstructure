@@ -14,7 +14,7 @@ A workflow in three steps:
    that it predicts things it was not fitted to (`examples/gb_homogenisation.py`).
 
 The study uses Voronoi cells. The transport helpers consume the
-`MeshedMicrostructure` contract: mesh and cell tags, per-grain orientations,
+`MeshedMicrostructure` contract for the mesh and cell tags,
 and a boundary network supplied through facet tags or a geometric locator.
 An EBSD mesh can provide the same inputs.
 

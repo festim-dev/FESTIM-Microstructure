@@ -8,13 +8,15 @@ from pathlib import Path
 
 __all__ = ["read_provenance", "write_provenance"]
 
+_VERSION = 2
+
 
 def write_provenance(path, opt, seg, vox, log=print):
     """Save source settings and quantitative orientation diagnostics."""
     rec = asdict(opt)
     rec.update(
         {
-            "version": 1,
+            "version": _VERSION,
             "ctf": str(opt.ctf),
             "unit": opt.unit,
             "voxsize": list(vox),
@@ -35,7 +37,7 @@ def write_provenance(path, opt, seg, vox, log=print):
 def read_provenance(path):
     """Read current conversion metadata stored alongside an EBSD archive."""
     record = json.loads(Path(path).read_text())
-    if not isinstance(record, dict) or record.get("version") != 1:
+    if not isinstance(record, dict) or record.get("version") != _VERSION:
         raise ValueError(
             f"{path}: unsupported EBSD provenance version; re-run the CTF conversion"
         )

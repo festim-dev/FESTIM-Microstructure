@@ -5,7 +5,8 @@ import json
 import numpy as np
 import pytest
 
-from festim_microstructure.ebsd.convert import (
+from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
+from festim_microstructure.ebsd.grains import (
     MeasureOptions,
     convert,
     measure_against_ctf,
@@ -16,8 +17,7 @@ from festim_microstructure.ebsd.orientation import (
     qconj,
     qmul,
 )
-from festim_microstructure.formats.ebsd import EbsdData, read_ebsd, write_ebsd
-from festim_microstructure.meshing.upxo import resolve_python
+from festim_microstructure.ebsd.upxo import resolve_python
 
 requires_upxo = pytest.mark.skipif(
     resolve_python(required=False) is None, reason="UPXO/DefDAP importer unavailable"
@@ -58,7 +58,7 @@ def test_crop_applies_before_minimum_grain_size(tmp_path, ctf_writer):
     full = convert(ctf, tmp_path / "full.npz", min_pixels=5, log=None)
     assert full.ncells == 1
     with pytest.raises(RuntimeError, match="no grains survived"):
-        convert(ctf, tmp_path / "crop.npz", min_pixels=5, crop="0,2,0,2", log=None)
+        convert(ctf, tmp_path / "crop.npz", min_pixels=5, crop=(0, 2, 0, 2), log=None)
     assert not (tmp_path / "crop.npz").exists()
 
 
@@ -115,7 +115,7 @@ def test_phase_selection_reordered_rows_and_rectangular_pixels(tmp_path, ctf_wri
 def test_import_cache_invalidates_when_source_changes(
     tmp_path, ctf_writer, monkeypatch
 ):
-    from festim_microstructure.meshing import upxo
+    from festim_microstructure.ebsd import upxo
 
     ctf = ctf_writer(tmp_path / "map.ctf", np.zeros((4, 4, 3)))
     output = tmp_path / "map.npz"
@@ -143,13 +143,14 @@ def test_import_cache_regenerates_unsupported_provenance(
     tmp_path, ctf_writer, monkeypatch
 ):
     """An intact archive cannot keep an unsupported provenance record in use."""
-    from festim_microstructure.meshing import upxo
+    from festim_microstructure.ebsd import upxo
 
     ctf = ctf_writer(tmp_path / "map.ctf", np.zeros((4, 4, 3)))
     output = tmp_path / "map.npz"
     first = convert(ctf, output, min_pixels=1, force=False, log=None)
     record = json.loads(first.provenance.read_text())
-    record["version"] = 2
+    current_version = record["version"]
+    record["version"] = current_version + 1
     first.provenance.write_text(json.dumps(record))
     run = upxo.subprocess.run
     imports = []
@@ -162,7 +163,7 @@ def test_import_cache_regenerates_unsupported_provenance(
     monkeypatch.setattr(upxo.subprocess, "run", tracked_run)
     rebuilt = convert(ctf, output, min_pixels=1, force=False, log=None)
     assert len(imports) == 1
-    assert json.loads(rebuilt.provenance.read_text())["version"] == 1
+    assert json.loads(rebuilt.provenance.read_text())["version"] == current_version
     np.testing.assert_array_equal(rebuilt.data.labels, first.data.labels)
 
 
@@ -185,7 +186,7 @@ def test_native_archive_retains_voids_components_and_membership(tmp_path):
 def test_import_cache_invalidates_when_worker_environment_changes(
     tmp_path, ctf_writer, monkeypatch
 ):
-    from festim_microstructure.meshing import upxo
+    from festim_microstructure.ebsd import upxo
 
     ctf = ctf_writer(tmp_path / "map.ctf", np.zeros((4, 4, 3)))
     output = tmp_path / "map.npz"
@@ -221,7 +222,7 @@ HEMISPHERE_EULER = np.array(
 
 def test_symmetry_mean_is_invariant_to_antipodal_signs():
     from festim_microstructure.ebsd.orientation import crystal_equivalents
-    from festim_microstructure.meshing.upxo import _sign_aligned_quaternion_mean
+    from festim_microstructure.ebsd.upxo import _sign_aligned_quaternion_mean
 
     pixels = euler_bunge_to_quat(*HEMISPHERE_EULER.T)
     equivalents = crystal_equivalents(pixels).transpose(1, 2, 0)

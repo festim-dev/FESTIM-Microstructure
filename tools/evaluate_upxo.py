@@ -76,9 +76,9 @@ def synthetic_cases():
 
 
 def prepare(output):
-    from festim_microstructure.ebsd.convert import CtfConversion
+    from festim_microstructure.ebsd.grains import CtfConversion
+    from festim_microstructure.ebsd.options import Settings
     from festim_microstructure.ebsd.orientation import euler_bunge_to_quat
-    from festim_microstructure.ebsd.settings import Settings
 
     output.mkdir(parents=True, exist_ok=True)
     inputs = output / "inputs"
@@ -96,11 +96,10 @@ def prepare(output):
     ctf = ROOT / "examples/data/D7 PBF SS316L.ctf"
     options = Settings(
         ctf=str(ctf),
-        crop="0,306,0,306",
+        crop=(0, 306, 0, 306),
         min_pixels=15,
         max_mad=1.5,
         allow_error=True,
-        diagnostics=False,
     )
     conversion = CtfConversion(options).read().import_grains().measure()
     conversion.write(inputs / "ctf_map-ebsd.npz")
@@ -615,8 +614,7 @@ def verify(output):
 
     from dolfinx.io import gmsh as gmshio
 
-    from festim_microstructure.formats.msh4 import read_mesh
-    from festim_microstructure.meshing.ebsd import EbsdMicrostructure, read_extent
+    from festim_microstructure.ebsd import EbsdMicrostructure
 
     results = []
     for path in sorted(output.glob("*/*/result.json")):
@@ -637,12 +635,9 @@ def verify(output):
         if base.with_suffix(".msh4").exists():
             try:
                 expected = np.load(str(base) + "-expected.npz")
-                mesh, cells, facets = read_mesh(base, gdim=2)
-                # EbsdMicrostructure's vertex midpoint query needs this in
-                # DOLFINx; a direct Gmsh import does not create it.
-                mesh.topology.create_connectivity(0, mesh.topology.dim)
-                extent = read_extent(base)
-                micro = EbsdMicrostructure.from_mesh(base, mesh, cells, facets, extent)
+                micro = EbsdMicrostructure.load(base)
+                mesh, cells, facets = micro.mesh, micro.cell_tags, micro.facet_tags
+                extent = micro.extent
                 raw = output / result["case"] / "raw/adapted-expected.npz"
                 if raw.exists():
                     raw_pairs = np.load(raw)["pairs"]

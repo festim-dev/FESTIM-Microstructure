@@ -27,8 +27,16 @@ def test_all_3d_voronoi_cases_export_every_timestep(tmp_path, monkeypatch):
     prefixes = ("voronoi3d", "voronoi3d_parallel", "voronoi3d_perpendicular")
     assert len(list(tmp_path.glob("*.bp"))) == 6
     for prefix in prefixes:
-        for phase, field in (("grains", "c_lattice"), ("network", "c_gb_1000000")):
+        for phase in ("grains", "network"):
             with adios2.FileReader(str(tmp_path / f"{prefix}_{phase}.bp")) as reader:
+                if phase == "network":
+                    (field,) = (
+                        name
+                        for name in reader.available_variables()
+                        if name.startswith("c_gb_")
+                    )
+                else:
+                    field = "c_lattice"
                 assert reader.num_steps() == 4
                 times = reader.read("step", step_selection=[0, 4])
                 assert np.allclose(times.ravel(), [0.0, 0.05, 0.1, 0.15])

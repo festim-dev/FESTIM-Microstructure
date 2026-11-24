@@ -11,15 +11,16 @@ that crosses several independently solved grains has to be split into one
 single volume subdomain.
 
 The three factory functions at the end build these from a
-:class:`~festim_microstructure.microstructure.MeshedMicrostructure`. Everything
-else -- species, the exchange terms, boundary conditions, settings, the
-:class:`festim.HydrogenTransportProblemDiscontinuous` itself -- is written in
-the application, as FESTIM's manifold documentation shows.
+:class:`~festim_microstructure.microstructure.MeshedMicrostructure`. Species,
+reactions and boundary conditions on them are FESTIM declarations, and
+:func:`~festim_microstructure.fem.exchange` supplies the grain-to-network terms.
 """
 
 import dolfinx
 import festim as F
 import numpy as np
+
+from festim_microstructure.microstructure import GeometricBoundaryLocator
 
 __all__ = [
     "Grain",
@@ -267,52 +268,58 @@ class GrainBoundaryNetwork(F.VolumeSubdomain):
 class GrainSurface(F.SurfaceSubdomain):
     """The part of an outer surface belonging to one grain."""
 
-    def __init__(self, id, grain_id, cell_tags, locator):
-        """Initialize a surface patch attached to one grain."""
+    def __init__(self, id, grain_id, mesh, facets, locator):
+        """Bind a patch to exterior facets on its parent mesh."""
         super().__init__(id=id, locator=locator)
         self.grain_id = grain_id
-        self.cell_tags = cell_tags
-        self._cache = {}
+        self._mesh = mesh
+        self._facets = facets
 
     def locate_boundary_facet_indices(self, mesh):
-        # FESTIM locates each patch twice; cache by mesh identity.
-        """Return cached exterior facets belonging to this grain patch."""
-        key = id(mesh)
-        if key in self._cache:
-            return self._cache[key]
-        self._cache[key] = self._locate(mesh)
-        return self._cache[key]
+        """Return the parent-mesh facets belonging to this patch."""
+        if mesh is not self._mesh:
+            raise ValueError("grain surface facets belong to a different mesh")
+        return self._facets
 
-    def _locate(self, mesh):
-        """Find exterior facets whose adjacent cell has this grain ID."""
-        tdim = mesh.topology.dim
-        mesh.topology.create_connectivity(tdim - 1, tdim)
-        facet_to_cell = mesh.topology.connectivity(tdim - 1, tdim)
-        facets = dolfinx.mesh.locate_entities_boundary(mesh, tdim - 1, self.locator)
 
-        # Index the adjacency list's flat array through its offsets rather than
-        # calling links() per facet, as FESTIM does in
-        # HydrogenTransportProblem.manifold_is_interior: this runs once per grain
-        # per boundary condition over every boundary facet of the mesh, so the
-        # Python loop it replaces costs n_grains x n_bcs x n_boundary_facets
-        # iterations on every build. locate_entities_boundary returns exterior
-        # facets only, and an exterior facet has exactly one adjacent cell, which
-        # sits at offsets[facet].
-        adjacent = facet_to_cell.array[facet_to_cell.offsets[facets]]
-        keep = np.isin(adjacent, self.cell_tags.find(self.grain_id))
-        return facets[keep].astype(np.int32)
+def _exterior_facets_by_grain(mesh, tags, locator):
+    """Group selected facets with tagged cells, retaining their order within a grain."""
+    tdim = mesh.topology.dim
+    mesh.topology.create_connectivity(tdim - 1, tdim)
+    facet_to_cell = mesh.topology.connectivity(tdim - 1, tdim)
+    facets = dolfinx.mesh.locate_entities_boundary(mesh, tdim - 1, locator)
+    adjacent = facet_to_cell.array[facet_to_cell.offsets[facets]]
+    position = np.searchsorted(tags.indices, adjacent)
+    in_bounds = position < tags.indices.size
+    position = position[in_bounds]
+    tagged = tags.indices[position] == adjacent[in_bounds]
+    owners = tags.values[position[tagged]]
+    order = np.argsort(owners, kind="stable")
+    sorted_facets = facets[in_bounds][tagged][order]
+    ids, first, counts = np.unique(owners[order], return_index=True, return_counts=True)
+    return {
+        grain: sorted_facets[start : start + count]
+        for grain, start, count in zip(ids, first, counts, strict=True)
+    }
 
 
 def grain_subdomains(micro, material):
-    """One :class:`Grain` per tagged grain of ``micro``, all sharing ``material``.
+    """One :class:`Grain` per tagged grain of ``micro``.
 
-    The usual material is ``festim.Material(D=field)`` with the field from
+    ``material`` is one :class:`festim.Material` shared by every grain, or a
+    callable ``material(grain_id)`` returning each grain's own, for example to
+    give the phases of a multi-phase map different solubilities. The usual
+    shared material is ``festim.Material(D=field)`` with the field from
     :func:`~festim_microstructure.materials.crystal_diffusivity_field`, so that
     each grain reads its own tensor from the one parent-mesh coefficient.
     """
+    if callable(material) and not isinstance(material, F.Material):
+        materials = [material(int(g)) for g in micro.grain_ids]
+    else:
+        materials = [material] * len(micro.grain_ids)
     return [
-        Grain(id=int(g), material=material, cell_tags=micro.cell_tags)
-        for g in micro.grain_ids
+        Grain(id=int(g), material=m, cell_tags=micro.cell_tags)
+        for g, m in zip(micro.grain_ids, materials, strict=True)
     ]
 
 
@@ -338,32 +345,54 @@ def grain_boundary_network(
             drop_exterior=drop_exterior,
             diffusivity_by_entity=diffusivity_by_entity,
         )
+    locator = micro.locator if isinstance(micro, GeometricBoundaryLocator) else None
+    if not callable(locator):
+        raise TypeError(
+            "grain boundary location requires facet tags or a callable locator"
+        )
     return GrainBoundaryNetwork(
-        id, material, dim, locator=micro.locator, drop_exterior=drop_exterior
+        id,
+        material,
+        dim,
+        locator=locator,
+        drop_exterior=drop_exterior,
+        diffusivity_by_entity=diffusivity_by_entity,
     )
 
 
 def grain_surfaces(mesh, grains, locator, first_id):
     """Split the outer surface ``locator`` selects into what each grain owns.
 
-    Returns the non-empty per-grain patches, numbered from ``first_id``, and
+    Returns the globally non-empty per-grain patches, numbered from ``first_id``, and
     the *mouths* of the network on that surface: the codimension-two
     :class:`festim.SurfaceSubdomain` (the endpoints of the network in 2D, its rim
-    in 3D) that carries the network species' boundary condition there. It takes
-    the id after the last patch. A grain that does not touch the surface gets no
-    patch, and its id is skipped.
+    in 3D) that carries the network species' boundary condition there. Each grain
+    reserves an ID, even if it does not touch the surface. The mouths take the
+    ID after all the reserved patch IDs. The grains share one set of cell tags.
+    Call this on all ranks of the mesh.
 
     A boundary condition on the surface is then one
     :class:`festim.FixedConcentrationBC` per patch for that grain's species, and
     one on the mouths for the network species.
     """
-    tdim = mesh.topology.dim
-    patches = []
-    next_id = first_id
-    for grain in grains:
-        patch = GrainSurface(next_id, grain.id, grain.cell_tags, locator)
-        next_id += 1
-        if patch.locate_boundary_facet_indices(mesh).size:
-            patches.append(patch)
-    mouths = F.SurfaceSubdomain(id=next_id, dim=tdim - 2, locator=locator)
+    grains = list(grains)
+    by_grain = {}
+    if grains:
+        tags = grains[0].cell_tags
+        if any(grain.cell_tags is not tags for grain in grains):
+            raise ValueError("grains on a surface must share the parent mesh cell tags")
+        by_grain = _exterior_facets_by_grain(mesh, tags, locator)
+
+    touched = set().union(*mesh.comm.allgather(list(by_grain)))
+    empty = np.empty(0, dtype=np.int32)
+    patches = [
+        GrainSurface(
+            first_id + i, grain.id, mesh, by_grain.get(grain.id, empty), locator
+        )
+        for i, grain in enumerate(grains)
+        if grain.id in touched
+    ]
+    mouths = F.SurfaceSubdomain(
+        id=first_id + len(grains), dim=mesh.topology.dim - 2, locator=locator
+    )
     return patches, mouths

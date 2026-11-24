@@ -6,9 +6,9 @@ import meshio
 import numpy as np
 import pytest
 
-from festim_microstructure.formats.ebsd import EbsdData, write_ebsd
-from festim_microstructure.meshing import upxo
-from festim_microstructure.meshing.diagnostics import (
+from festim_microstructure.ebsd import upxo
+from festim_microstructure.ebsd.archive import EbsdData, write_ebsd
+from festim_microstructure.ebsd.mesh_checks import (
     AreaReportOptions,
     area_change,
     centroid_displacement,

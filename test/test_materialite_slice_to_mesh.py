@@ -9,7 +9,8 @@ import numpy as np
 import pytest
 from scipy import ndimage
 
-from festim_microstructure.formats.ebsd import EbsdData, read_ebsd, write_ebsd
+from festim_microstructure.ebsd import upxo
+from festim_microstructure.ebsd.archive import EbsdData, read_ebsd, write_ebsd
 
 EXAMPLE = (
     Path(__file__).resolve().parents[1] / "examples" / "materialite_slice_to_mesh.py"
@@ -153,7 +154,7 @@ def test_long_raster_retains_one_pixel_grain_area(source, tmp_path):
     labels[33, 10] = 2
     data = EbsdData(labels, source["grain_quats"], (5.0, 5.0))
     archive = write_ebsd(tmp_path / "long.npz", data)
-    base = example.fm.meshing.upxo.mesh_ebsd(
+    base = upxo.mesh_ebsd(
         archive,
         example.fm.UpxoMeshOptions(smoothing="none"),
         workdir=tmp_path,

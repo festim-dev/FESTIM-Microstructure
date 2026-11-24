@@ -1,6 +1,7 @@
-"""FESTIM/DOLFINx glue: grain and network subdomains, and solver helpers."""
+"""FESTIM declarations and solver helpers for grain-boundary transport."""
 
-from . import solvers, subdomains
+from . import coupling, solvers, subdomains
+from .coupling import exchange
 from .solvers import tune_direct_solver
 from .subdomains import (
     Grain,
@@ -17,6 +18,8 @@ __all__ = [
     "Grain",
     "GrainBoundaryNetwork",
     "GrainSurface",
+    "coupling",
+    "exchange",
     "facet_midpoints",
     "grain_boundary_network",
     "grain_subdomains",

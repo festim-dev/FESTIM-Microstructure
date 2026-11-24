@@ -28,9 +28,6 @@ import festim_microstructure as fm
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "results" / Path(__file__).stem
 
-NETWORK_ID = 1_000_000  # above every grain id; a manifold shares the surface ids
-SURFACE_ID_0 = 2_000_000  # the per-grain surface patches are numbered from here
-
 # Physics (SI).
 T = 1073.0  # K
 D0_M = 5.13e-8  # m^2/s, Liu et al. 2014, cited in their Sect. 2.3
@@ -55,6 +52,8 @@ F_GB_THIN = [0.003, 0.01, 0.03, 0.1]
 SIMULATED = [("col_x", 0), ("iso", 2)]
 LABEL = {"col_z": "Col_I(Z)", "col_x": "Col_I(X)", "iso": "Iso"}
 K_B = 8.617333e-5  # eV/K
+NETWORK_ID = 1_000_000  # above every grain id
+SURFACE_ID_0 = 2_000_000  # surfaces are numbered from here
 
 
 def D_m(T):
@@ -96,17 +95,17 @@ def make(structure, comm):
 
 @dataclass
 class CellProblem:
-    """One declared problem and the two constants the sweep changes."""
+    """One declared problem and the coefficients the sweep changes."""
 
     model: F.HydrogenTransportProblemDiscontinuous
     grains: list
-    species: list
-    tensors: dict
+    grain_species: list
     network: fm.GrainBoundaryNetwork
     c_gb: F.Species
+    tensors: dict
     D_gb: float
-    k: dolfinx.fem.Constant
     width: dolfinx.fem.Constant
+    k: dolfinx.fem.Constant
 
     def solve(self, delta, k):
         """Solve for a new slab width and exchange rate, from a cold start.
@@ -125,50 +124,25 @@ class CellProblem:
 
 
 def cell_problem(micro, D_gb, bcs):
-    """The grain/network problem as FESTIM declarations; see the Voronoi
-    examples. ``delta`` and ``k`` start at placeholders and are set per point."""
-    mesh = micro.mesh
-    scalar = dolfinx.default_scalar_type
-    D_lattice, tensors = fm.materials.crystal_diffusivity_field(micro, D_m(T))
-    grains = fm.fem.subdomains.grain_subdomains(micro, F.Material(D=D_lattice))
-    network = fm.fem.subdomains.grain_boundary_network(
+    """Declare transport with a width and exchange rate set per sweep point."""
+    D_lattice, tensors = fm.crystal_diffusivity_field(micro, D_m(T))
+    grains = fm.grain_subdomains(micro, F.Material(D=D_lattice))
+    network = fm.grain_boundary_network(
         NETWORK_ID, micro, F.Material(D_0=D_gb, E_D=0.0)
     )
     grain_species = [F.Species(f"c_{g.id}", subdomains=[g]) for g in grains]
     c_gb = F.Species("c_gb", subdomains=[network])
     species_of = dict(zip((g.id for g in grains), grain_species, strict=True))
-
-    # Keeping these as DOLFINx constants allows the sweep to change them without
-    # re-assembling (it's only needed for efficiency)
-    k = dolfinx.fem.Constant(mesh, scalar(1.0))
-    width = dolfinx.fem.Constant(mesh, scalar(1.0))
-    sources, boundary_conditions = [], []
-    for c_grain in grain_species:
-        exchange = {"c_g": c_grain, "c_n": c_gb}
-        sources.append(
-            F.ParticleSource(
-                value=lambda c_g, c_n: (k / width) * (c_g - c_n),
-                species=c_gb,
-                volume=network,
-                species_dependent_value=exchange,
-            )
-        )
-        boundary_conditions.append(
-            F.ParticleFluxBC(
-                subdomain=network,
-                species=c_grain,
-                value=lambda c_g, c_n: k * (c_n - c_g),
-                species_dependent_value=exchange,
-            )
-        )
-
+    width = dolfinx.fem.Constant(micro.mesh, dolfinx.default_scalar_type(1.0))
+    k = dolfinx.fem.Constant(micro.mesh, dolfinx.default_scalar_type(1.0))
+    sources, boundary_conditions = fm.exchange(
+        grain_species, c_gb, network, width=width, k=k
+    )
     subdomains = [*grains, network]
-    next_id = SURFACE_ID_0
+    surface_id = SURFACE_ID_0
     for locator, value in bcs:
-        patches, mouths = fm.fem.subdomains.grain_surfaces(
-            mesh, grains, locator, next_id
-        )
-        next_id = mouths.id + 1
+        patches, mouths = fm.grain_surfaces(micro.mesh, grains, locator, surface_id)
+        surface_id = mouths.id + 1
         subdomains += [*patches, mouths]
         boundary_conditions += [
             F.FixedConcentrationBC(
@@ -181,7 +155,7 @@ def cell_problem(micro, D_gb, bcs):
         )
 
     model = F.HydrogenTransportProblemDiscontinuous(
-        mesh=F.Mesh(mesh),
+        mesh=F.Mesh(micro.mesh),
         subdomains=subdomains,
         species=[*grain_species, c_gb],
         sources=sources,
@@ -190,9 +164,9 @@ def cell_problem(micro, D_gb, bcs):
         settings=F.Settings(atol=1e-25, rtol=1e-10, transient=False),
     )
     model.initialise()
-    fm.fem.solvers.tune_direct_solver(model)
+    fm.fem.tune_direct_solver(model)
     return CellProblem(
-        model, grains, grain_species, tensors, network, c_gb, D_gb, k, width
+        model, grains, grain_species, network, c_gb, tensors, D_gb, width, k
     )
 
 
@@ -209,16 +183,22 @@ def run(cp, axis, S_v, ratio, f_gb) -> dict[str, float | str]:
     cp.solve(delta, k)
     # their Eq. 21: volume-averaged flux
     q, _, _ = fm.exports.averages.averages(
-        cp.grains, cp.species, cp.tensors, cp.network, cp.c_gb, delta, cp.D_gb
+        cp.grains,
+        cp.grain_species,
+        cp.tensors,
+        cp.network,
+        cp.c_gb,
+        delta,
+        cp.D_gb,
     )
     D_eff = q[axis] * B / (C_IN - C_OUT)
+    equilibration_length = np.sqrt(delta * cp.D_gb / (2 * k))
     return dict(
         f_gb=f_gb,
         delta_nm=delta * 1e9,
         S_v_per_nm=S_v * 1e-9,
         k_m_per_s=k,
-        equilibration_length_nm=fm.materials.equilibration_length(delta, cp.D_gb, k)
-        * 1e9,
+        equilibration_length_nm=equilibration_length * 1e9,
         n_grains=len(cp.grains),
         ratio=ratio,
         D_m=D_m(T),

@@ -21,14 +21,16 @@ import numpy as np
 from scipy import ndimage
 
 import festim_microstructure as fm
-from festim_microstructure.formats.ebsd import EbsdData, read_ebsd, write_ebsd
-from festim_microstructure.formats.msh4 import read_mesh, read_msh4
-from festim_microstructure.meshing.ebsd import (
-    mesh_diagnostics,
+from festim_microstructure.ebsd import upxo
+from festim_microstructure.ebsd.archive import (
+    EbsdData,
+    read_ebsd,
     read_extent,
-    write_network_png,
+    write_ebsd,
 )
-from festim_microstructure.plotting import use_agg
+from festim_microstructure.ebsd.mesh_checks import mesh_diagnostics, write_network_png
+from festim_microstructure.ebsd.plotting import use_agg
+from festim_microstructure.msh4 import read_mesh, read_msh4
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "results" / Path(__file__).stem
 # Half-open array windows: row_start, row_stop, column_start, column_stop.
@@ -313,9 +315,14 @@ def run_case(data, archive, directory, mode, deadline):
         mesh_size_gb=0.75,
         mesh_size_bulk=4.5,
         n_threads=1,
-        timeout=min(600.0, remaining),
     )
-    report = {"mode": mode, "status": "running", "options": asdict(options)}
+    timeout = min(upxo.DEFAULT_WORKER_TIMEOUT, remaining)
+    report = {
+        "mode": mode,
+        "status": "running",
+        "options": asdict(options),
+        "timeout": timeout,
+    }
     directory.mkdir(parents=True, exist_ok=True)
     base = directory / "poly"
     print(
@@ -323,8 +330,14 @@ def run_case(data, archive, directory, mode, deadline):
         flush=True,
     )
     try:
-        base = fm.meshing.upxo.mesh_ebsd(
-            archive, options, workdir=directory, stem="poly", unit=1e-6, force=False
+        base = upxo.mesh_ebsd(
+            archive,
+            options,
+            workdir=directory,
+            stem="poly",
+            unit=1e-6,
+            force=False,
+            timeout=timeout,
         )
         validation = json.loads(Path(f"{base}-validation.json").read_text())
         if not validation["accepted"]:

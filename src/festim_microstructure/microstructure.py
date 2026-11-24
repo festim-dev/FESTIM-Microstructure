@@ -7,12 +7,10 @@ called "a microstructure":
   which is what the subdomain factories in
   :mod:`~festim_microstructure.fem.subdomains`, the coefficient fields in
   :mod:`~festim_microstructure.materials` and the post-processing in
-  :mod:`~festim_microstructure.exports` read. Implemented by the Voronoi
-  builders, and by :class:`TaggedPolycrystal` for a mesh that came from
-  somewhere else.
-* :class:`BoundaryNetwork` -- a tessellation topology with a per-entity
-  disorientation and masks selecting the boundaries to keep. Implemented by the
-  EBSD reader.
+  :mod:`~festim_microstructure.exports` read. Implemented by the Voronoi and
+  EBSD mesh builders, and by :class:`TaggedPolycrystal` for other tagged meshes.
+* :class:`BoundaryTopology` -- a tessellation topology with a per-entity
+  disorientation and masks selecting the boundaries to keep. Implemented by EBSD.
 
 Both are declared as :pep:`544` protocols, so an implementation conforms by
 having the right attributes rather than by inheriting. They are
@@ -28,9 +26,11 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 
 __all__ = [
-    "BoundaryNetwork",
+    "BoundaryTopology",
+    "GeometricBoundaryLocator",
     "MeshedMicrostructure",
     "Microstructure",
+    "PlanarLatticeOrientations",
     "TaggedPolycrystal",
 ]
 
@@ -51,10 +51,8 @@ class MeshedMicrostructure(Microstructure, Protocol):
     ``facet_tags``/``gb_tag`` may be ``None``: a builder that cannot tag the
     grain-boundary facets leaves them unset and
     :func:`~festim_microstructure.fem.subdomains.grain_boundary_network`
-    locates the network geometrically through :meth:`locator` instead. The
-    attributes must still *exist*, so that consumers can test them rather than
-    reach for ``getattr(micro, "facet_tags", None)`` and silently take the
-    wrong branch when the name is simply misspelled.
+    locates the network through :class:`GeometricBoundaryLocator` in that case.
+    The tag attributes are required in both cases.
     """
 
     #: ``dolfinx.mesh.Mesh`` covering the whole cell.
@@ -63,12 +61,11 @@ class MeshedMicrostructure(Microstructure, Protocol):
     cell_tags: Any
     #: ``MeshTags`` on the facets, or ``None`` when the network is geometric.
     facet_tags: Any
-    #: The facet-tag value, or values, marking the grain boundaries; ``None``
-    #: when the network is geometric. An EBSD mesh tags every boundary edge
-    #: separately, so its network is a sequence of ids.
-    gb_tag: Any
-    #: One orientation per grain, indexed by ``grain_id - 1`` (radians).
-    orientations: np.ndarray
+
+    @property
+    def gb_tag(self) -> Any:
+        """Facet-tag values marking the grain boundaries, or ``None`` for a locator."""
+        ...
 
     @property
     def n_grains(self) -> int:
@@ -85,13 +82,29 @@ class MeshedMicrostructure(Microstructure, Protocol):
         """Distance below which a point counts as lying on the network."""
         ...
 
-    def locator(self, points: np.ndarray) -> np.ndarray:
-        """``(3, n)`` points in, boolean "is on the network" out."""
+
+@runtime_checkable
+class PlanarLatticeOrientations(Protocol):
+    """Optional planar lattice orientations for anisotropic diffusivity."""
+
+    @property
+    def orientations(self) -> np.ndarray | None:
+        """Planar angles in radians, indexed by ``grain_id - 1`` if available."""
         ...
 
 
 @runtime_checkable
-class BoundaryNetwork(Microstructure, Protocol):
+class GeometricBoundaryLocator(Protocol):
+    """Optional geometric location of the grain-boundary network."""
+
+    @property
+    def locator(self) -> Callable[[np.ndarray], np.ndarray] | None:
+        """A predicate mapping ``(3, n)`` points to a Boolean mask."""
+        ...
+
+
+@runtime_checkable
+class BoundaryTopology(Microstructure, Protocol):
     """A tessellation's grain-boundary topology, as the EBSD reader reports it.
 
     Entities are boundaries: faces in 3D, edges in 2D. Every array here is in
@@ -128,10 +141,8 @@ class BoundaryNetwork(Microstructure, Protocol):
 class TaggedPolycrystal:
     """A :class:`MeshedMicrostructure` made from a mesh and its tags.
 
-    The adapter for a mesh this package did not generate: an EBSD mesh
-    read with :func:`festim_microstructure.formats.msh4.read_mesh`, or one built
-    by hand. The Voronoi builders return microstructures of their own and do not
-    need it.
+    Use this adapter for externally generated or hand-built meshes that have
+    grain tags. The Voronoi and EBSD builders supply their own meshed objects.
 
     Only ``mesh`` and ``cell_tags`` are required. ``grain_ids`` defaults to the
     distinct cell-tag values across all ranks, and ``orientations`` to zero for
@@ -175,15 +186,10 @@ class TaggedPolycrystal:
         """Number of tagged grains in the mesh."""
         return len(self.grain_ids)
 
-    def locator(self, points: np.ndarray) -> np.ndarray:
-        """Classify points using the configured geometric network locator."""
-        if self.network_locator is None:
-            raise TypeError(
-                f"{type(self).__name__} {self.name!r} was built without a "
-                "network_locator, so the network can only come from facet tags. "
-                "Pass facet_tags and gb_tag, or a network_locator."
-            )
-        return self.network_locator(points)
+    @property
+    def locator(self) -> Callable[[np.ndarray], np.ndarray] | None:
+        """The configured geometric network locator."""
+        return self.network_locator
 
     def report(self) -> str:
         """Summarize the grain count and network location method."""

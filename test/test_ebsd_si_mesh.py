@@ -6,19 +6,56 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+_ISOLATED_WORKER = """
+import importlib.abc
+import runpy
+import sys
+
+class BlockSolverImports(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in {
+            'festim_microstructure', 'festim', 'dolfinx', 'mpi4py', 'petsc4py',
+            'ufl', 'basix',
+        }:
+            raise AssertionError(f'unexpected worker import: {fullname}')
+
+sys.meta_path.insert(0, BlockSolverImports())
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name='__main__')
+"""
+
 
 @pytest.mark.fenics
 def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
     tmp_path, monkeypatch, ctf_writer
 ):
-    from festim_microstructure.ebsd.orientation import euler_bunge_to_quat
-    from festim_microstructure.ebsd.settings import Settings
-    from festim_microstructure.formats.ebsd import read_ebsd
-    from festim_microstructure.formats.msh4 import read_mesh
-    from festim_microstructure.meshing import ebsd, upxo
+    import festim as F
 
-    if upxo.resolve_python(required=False) is None:
+    import festim_microstructure as fm
+    from festim_microstructure import ebsd
+    from festim_microstructure.ebsd import upxo
+    from festim_microstructure.ebsd.archive import read_ebsd, read_extent
+    from festim_microstructure.ebsd.options import Settings, settings_from_provenance
+    from festim_microstructure.ebsd.orientation import euler_bunge_to_quat
+    from festim_microstructure.msh4 import read_mesh
+
+    executable = upxo.resolve_python(required=False)
+    if executable is None:
         pytest.skip("configure FM_UPXO_PYTHON for the UPXO integration test")
+    monkeypatch.setenv("FM_UPXO_PYTHON", "/missing-upxo-python")
+    worker_path = str(Path(upxo.__file__).resolve())
+    worker_calls = []
+    subprocess_run = upxo.subprocess.run
+
+    def isolated_run(command, **kwargs):
+        if command[1:3] == ["-I", worker_path]:
+            assert command[0] == executable
+            worker_calls.append((command[3], kwargs["timeout"]))
+            command = [executable, "-I", "-B", "-c", _ISOLATED_WORKER, *command[2:]]
+        return subprocess_run(command, **kwargs)
+
+    monkeypatch.setattr(upxo.subprocess, "run", isolated_run)
+    assert upxo.probe_worker(executable, health=True)["health"] == "ok"
     labels = np.ones((12, 16), dtype=np.int32)
     labels[4:8, 6:10] = 2
     orientations = np.zeros((*labels.shape, 3))
@@ -26,18 +63,31 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
     orientations[labels == 2] = [21, 43, 73]
     ctf = ctf_writer(tmp_path / "map.ctf", orientations, spacing=(0.5, 0.75))
     options = ebsd.EbsdOptions(
-        ctf=str(ctf),
         unit=1e-6,
         check_images=False,
-        import_settings=Settings(ctf=str(ctf), min_pixels=1),
-        mesh=upxo.UpxoMeshOptions(smoothing="none"),
+        python=executable,
+        timeout=120.0,
+        import_settings=Settings(ctf=str(ctf), min_pixels=1, crop=(0, 8, 0, 9)),
+        mesh=ebsd.UpxoMeshOptions(smoothing="none"),
     )
-    base = ebsd.run_ebsd_pipeline(options, workdir=tmp_path, force=False)
+    base = fm.run_ebsd_pipeline(options, workdir=tmp_path, force=False)
+    assert {mode for mode, _ in worker_calls} == {
+        "--health",
+        "--environment",
+        "--import",
+        "--worker",
+    }
+    assert all(timeout == 120.0 for mode, timeout in worker_calls if mode != "--health")
+    assert not list(tmp_path.glob("*.png"))
+    assert Path(f"{base}-areachange.csv").is_file()
+    assert Path(f"{base}-festim.json").is_file()
+    provenance = base.with_name(f"{base.name}-import-provenance.json")
+    assert settings_from_provenance(provenance).crop == (0, 8, 0, 9)
     mesh, cells, facets = read_mesh(base, gdim=2)
     np.testing.assert_allclose(mesh.geometry.x.max(axis=0), [8e-6, 9e-6, 0])
     np.testing.assert_array_equal(np.unique(cells.values), [1, 2])
     np.testing.assert_array_equal(np.unique(facets.values), [1, 2])
-    np.testing.assert_allclose(ebsd.read_extent(base), [8e-6, 9e-6])
+    np.testing.assert_allclose(read_extent(base), [8e-6, 9e-6])
     np.testing.assert_allclose(
         np.abs(read_ebsd(f"{base}-ebsd.npz").grain_quats),
         np.abs(
@@ -48,7 +98,7 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
         atol=1e-6,
     )
     micro = ebsd.EbsdMicrostructure.from_mesh(
-        base, mesh, cells, facets, ebsd.read_extent(base)
+        base, mesh, cells, facets, read_extent(base)
     )
     assert micro.n_grains == 2
     assert micro.triple_junctions == 0
@@ -67,6 +117,61 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
         micro.edges.grain_pairs[~micro.interior_mask], [[1, 0]]
     )
     micro.check_orientations()
+    loaded = fm.EbsdMicrostructure.load(base, theta_min=0.0, comm=mesh.comm)
+    assert isinstance(loaded, fm.MeshedMicrostructure)
+    assert isinstance(loaded, fm.BoundaryTopology)
+    assert (
+        micro.mesh is mesh and micro.cell_tags is cells and micro.facet_tags is facets
+    )
+    np.testing.assert_array_equal(loaded.grain_ids, [1, 2])
+    np.testing.assert_array_equal(loaded.cell_tags.values, cells.values)
+    np.testing.assert_array_equal(loaded.facet_tags.values, facets.values)
+    np.testing.assert_array_equal(loaded.theta, micro.theta)
+    np.testing.assert_array_equal(loaded.gb_tag, micro.network_ids)
+    np.testing.assert_array_equal(loaded.grain_quats, micro.grain_quats)
+    assert loaded.extent == micro.extent
+    assert loaded.theta_min == 0.0
+    assert not hasattr(loaded, "orientations")
+    assert not hasattr(loaded, "locator")
+
+    cartesian = fm.TaggedPolycrystal(loaded.mesh, loaded.cell_tags)
+    isotropic, tensors = fm.crystal_diffusivity_field(loaded, 1e-12)
+    field, _ = fm.crystal_diffusivity_field(cartesian, 1e-12)
+    np.testing.assert_array_equal(isotropic.x.array, field.x.array)
+    for tensor in tensors.values():
+        np.testing.assert_array_equal(tensor, np.eye(2) * 1e-12)
+    with pytest.raises(ValueError, match="requires planar orientations"):
+        fm.crystal_diffusivity_field(loaded, 1e-12, crystal_anisotropy=2.0)
+
+    # The interior grain is enclosed, so the top edge has only a grain patch.
+    grains = fm.grain_subdomains(loaded, F.Material(D=isotropic))
+    network = fm.grain_boundary_network(
+        100, loaded, None, diffusivity_by_entity=np.full_like(loaded.theta, 1e-10)
+    )
+    species = {g.id: F.Species(f"c_{g.id}", subdomains=[g]) for g in grains}
+    c_gb = F.Species("c_gb", subdomains=[network])
+    patches, _ = fm.grain_surfaces(
+        loaded.mesh, grains, lambda x: np.isclose(x[1], loaded.extent[1]), 200
+    )
+    assert [p.grain_id for p in patches] == [1]
+    fixed = [
+        F.FixedConcentrationBC(
+            subdomain=p, value=lambda x: 1.0 + x[0], species=species[p.grain_id]
+        )
+        for p in patches
+    ]
+    sources, flux = fm.exchange(species.values(), c_gb, network, width=1e-7, k=1e-7)
+    model = F.HydrogenTransportProblemDiscontinuous(
+        mesh=F.Mesh(loaded.mesh),
+        subdomains=[*grains, network, *patches],
+        species=[*species.values(), c_gb],
+        sources=sources,
+        boundary_conditions=[*flux, *fixed],
+        temperature=500.0,
+        settings=F.Settings(atol=1e-25, rtol=1e-10, transient=False),
+    )
+    model.initialise()
+
     assert json.loads(Path(f"{base}-validation.json").read_text())["accepted"]
     original = base.with_suffix(".msh4").read_bytes()
 
@@ -79,14 +184,28 @@ def test_pipeline_exports_si_mesh_and_preserves_enclosed_grain(
             return run(command, **kwargs)
 
         context.setattr(upxo.subprocess, "run", unexpected_worker)
-        assert ebsd.run_ebsd_pipeline(options, workdir=tmp_path, force=False) == base
+        options.check_images = True
+        options.timeout = 150.0
+        assert fm.run_ebsd_pipeline(options, workdir=tmp_path, force=False) == base
     assert base.with_suffix(".msh4").read_bytes() == original
+    assert {path.name for path in tmp_path.glob("*.png")} == {
+        f"{base.name}-{suffix}.png"
+        for suffix in (
+            "import-segerr",
+            "import-quality",
+            "import-ipfz",
+            "check-mesh",
+            "check-area",
+            "check-network",
+        )
+    }
 
+    options.check_images = False
     options.unit = 1e-3
     ebsd.run_ebsd_pipeline(options, workdir=tmp_path, force=False)
     scaled, _, _ = read_mesh(base, gdim=2)
     np.testing.assert_allclose(scaled.geometry.x.max(axis=0), [8e-3, 9e-3, 0])
-    np.testing.assert_allclose(ebsd.read_extent(base), [8e-3, 9e-3])
+    np.testing.assert_allclose(read_extent(base), [8e-3, 9e-3])
     assert not list(tmp_path.glob("*.tesr"))
     assert not list(tmp_path.glob("*.sttesr"))
     assert not list(tmp_path.glob("poly-unscaled*"))
@@ -100,14 +219,14 @@ def test_ctf_transport_conserves_inventory_and_exchanges_with_boundary(
     tmp_path, ctf_writer, smoothing
 ):
     """A closed two-grain system transfers particles to its initially empty GB."""
+    import dolfinx
     import festim as F
-    from test_short_circuit import grain_network_problem
 
     import festim_microstructure as fm
-    from festim_microstructure.ebsd.settings import Settings
+    from festim_microstructure import ebsd
+    from festim_microstructure.ebsd import upxo
+    from festim_microstructure.ebsd.options import Settings
     from festim_microstructure.exports.averages import inventory, solutions
-    from festim_microstructure.formats.msh4 import read_mesh
-    from festim_microstructure.meshing import ebsd, upxo
 
     if upxo.resolve_python(required=False) is None:
         pytest.skip("UPXO interpreter unavailable")
@@ -117,37 +236,45 @@ def test_ctf_transport_conserves_inventory_and_exchanges_with_boundary(
     euler[labels == 2] = [0, 0, 20]
     ctf = ctf_writer(tmp_path / "transport.ctf", euler, spacing=(0.5, 0.75))
     options = ebsd.EbsdOptions(
-        ctf=str(ctf),
         unit=1e-6,
         check_images=False,
         import_settings=Settings(ctf=str(ctf), min_pixels=1),
-        mesh=upxo.UpxoMeshOptions(smoothing=smoothing),
+        mesh=ebsd.UpxoMeshOptions(smoothing=smoothing),
     )
-    base = ebsd.run_ebsd_pipeline(options, workdir=tmp_path)
-    mesh, cells, facets = read_mesh(base, gdim=2)
-    micro = ebsd.EbsdMicrostructure.from_mesh(
-        base, mesh, cells, facets, ebsd.read_extent(base)
-    )
-    poly = fm.TaggedPolycrystal(
-        mesh=mesh,
-        cell_tags=cells,
-        facet_tags=facets,
-        gb_tag=micro.network_ids,
-    )
+    base = fm.run_ebsd_pipeline(options, workdir=tmp_path)
+    micro = fm.EbsdMicrostructure.load(base)
     delta = 1e-7
+    k = dolfinx.fem.Constant(micro.mesh, dolfinx.default_scalar_type(0.0))
+    width = dolfinx.fem.Constant(micro.mesh, dolfinx.default_scalar_type(2 * delta))
+    lattice, _ = fm.crystal_diffusivity_field(micro, 1e-12)
+    grains = fm.grain_subdomains(micro, F.Material(D=lattice))
+    network = fm.grain_boundary_network(100, micro, F.Material(D_0=1e-10, E_D=0.0))
+    species = [F.Species(f"c_{g.id}", subdomains=[g]) for g in grains]
+    c_gb = F.Species("c_gb", subdomains=[network])
+    sources, flux = fm.exchange(species, c_gb, network, width=width, k=k)
     settings = F.Settings(
         atol=1e-25, rtol=1e-10, transient=True, final_time=0.2, stepsize=0.02
     )
-    model, grains, species, _, network, c_gb = grain_network_problem(
-        poly, 1e-12, 1e-10, delta, 1e-7, [], settings
+    model = F.HydrogenTransportProblemDiscontinuous(
+        mesh=F.Mesh(micro.mesh),
+        subdomains=[*grains, network],
+        species=[*species, c_gb],
+        sources=sources,
+        boundary_conditions=flux,
+        temperature=500.0,
+        settings=settings,
     )
+    model.show_progress_bar = False
     model.initial_conditions = [
         F.InitialConcentration(value=1.0, species=c, volume=g)
         for c, g in zip(species, grains, strict=True)
     ]
     model.initialise()
-    fm.fem.solvers.tune_direct_solver(model)
+    fm.fem.tune_direct_solver(model)
     assert model.manifold_is_interior(network)
+    # A sweep updates the constants after FESTIM has compiled the forms.
+    k.value = 1e-7
+    width.value = delta
     # FESTIM initializes the previous-step fields; expose them for the t=0 check.
     for subdomain in model.volume_subdomains:
         subdomain.u.x.array[:] = subdomain.u_n.x.array
