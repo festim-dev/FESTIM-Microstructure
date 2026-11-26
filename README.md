@@ -310,6 +310,7 @@ python examples/fisher_grain_boundary.py
 python examples/gb_homogenisation.py --sizes 2e-6 3e-6 4e-6
 python examples/li2022_fig4.py
 python examples/li2022_fig4_codim.py
+python examples/delic2026_crosssection.py
 ```
 
 See the [example workflows and output locations](examples/README.md).

@@ -19,6 +19,12 @@ cell-problem declaration across identification and validation.
   permeation and uptake, and generates the study figures in one run.
 - `li2022_fig4.py` and `li2022_fig4_codim.py` reproduce and compare the two
   grain-boundary formulations used for Li et al. (2022), Fig. 4.
+- `delic2026_crosssection.py` models a W foil cross-section with columnar
+  boundaries under plasma loading and reads the back surface through synthetic
+  indicator dots, for comparison with the patterned hydrogenography of
+  Delic et al. (2026). Its two studies show the inverse permeation halo
+  (closed boundary mouths, strongly coupled network) and the halo (over-fed
+  mouths, weakly coupled network). Parameters are plausible, not fitted.
 
 ## Outputs
 
