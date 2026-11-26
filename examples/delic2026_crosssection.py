@@ -137,11 +137,18 @@ class Case:
     h: float = 0.25 * UM  # mean mesh size; dots converge to ~1 %
     seed: int = 1
     delta: float = 1e-9  # m, boundary slab width
-    D_ratio: float = 1e5  # D_gb / D_lattice
+    D_ratio: float | tuple = 1e5  # D_gb / D_lattice, or one per GB
     s: float = 1.0  # segregation, equilibrium c_gb / c_grain
     k: float = 1e-2  # m/s, grain-to-network exchange coefficient
     m: float | tuple = 0.0  # front-mouth feed, c_gb(0) = m s c_front, or one per GB
     boundaries: tuple | None = None  # GB abscissae (m); None draws them from FOILS
+
+    def ratios(self, n):
+        """``D_gb / D`` of each of ``n`` boundaries."""
+        r = np.broadcast_to(np.asarray(self.D_ratio, dtype=float), (n,))
+        if np.any(r <= 0):
+            raise ValueError("D_gb / D must be positive")
+        return np.array(r)
 
     def feeds(self, n):
         """The front-mouth feed of each of ``n`` boundaries."""
@@ -152,8 +159,9 @@ class Case:
 
     def lengths(self):
         """``(lam, ell)``, the conductance and fin lengths, in metres."""
-        conductance = self.delta * self.s * self.D_ratio  # times D
-        D_gb = self.D_ratio * lattice_diffusivity(self.temperature)
+        ratio = np.asarray(self.D_ratio, dtype=float)
+        conductance = self.delta * self.s * ratio  # times D
+        D_gb = ratio * lattice_diffusivity(self.temperature)
         return conductance, np.sqrt(self.delta * self.s * D_gb / (2 * self.k))
 
 
@@ -235,9 +243,23 @@ def columnar_section(width, thickness, boundaries, h, beta=0.9):
         """Facets lying on one of the boundary lines."""
         return np.abs(x[0][:, None] - boundaries[None, :]).min(axis=1) < tol
 
+    # Each boundary line is its own tagged entity, numbered from 1 left to
+    # right, so that it can carry its own diffusivity.
+    fdim = tdim - 1
+    mesh.topology.create_connectivity(fdim, tdim)
+    facets = dolfinx.mesh.locate_entities(mesh, fdim, on_network)
+    mid = dolfinx.mesh.compute_midpoints(mesh, fdim, facets)[:, 0]
+    entity = 1 + np.abs(mid[:, None] - boundaries[None, :]).argmin(axis=1)
+    order = np.argsort(facets)
+    facet_tags = dolfinx.mesh.meshtags(
+        mesh, fdim, facets[order], entity[order].astype(np.int32)
+    )
+
     micro = fm.TaggedMicrostructure(
         mesh=mesh,
         cell_tags=cell_tags,
+        facet_tags=facet_tags,
+        gb_tag=list(range(1, boundaries.size + 1)),
         tolerance=tol,
         network_locator=on_network,
         name=f"columnar section, {boundaries.size} boundaries",
@@ -289,10 +311,11 @@ def lattice_flux(species, grains, D, y_line):
 def mouth_fluxes(c_gb, network, boundaries, delta, D_gb, thickness, tol, y_cut):
     """``(x, Q_front, Q_back, Q_cut)`` per boundary, network flux along ``+y``.
 
-    Per metre out of plane, read from the P1 network solution along each
-    straight boundary: the segment next to each end, and the one below
-    ``y_cut``. The front value is the flux at the middle of the first segment,
-    so it is only the mouth's intake when the fin length is well resolved.
+    ``D_gb`` holds one diffusivity per boundary. Per metre out of plane, read
+    from the P1 network solution along each straight boundary: the segment
+    next to each end, and the one below ``y_cut``. The front value is the flux
+    at the middle of the first segment, so it is only the mouth's intake when
+    the fin length is well resolved.
     """
     u = c_gb.subdomain_to_post_processing_solution[network]
     coords = u.function_space.tabulate_dof_coordinates()
@@ -301,16 +324,16 @@ def mouth_fluxes(c_gb, network, boundaries, delta, D_gb, thickness, tol, y_cut):
     coords = np.concatenate(gather(coords))
     values = np.concatenate(gather(values))
     rows = []
-    for xb in boundaries:
+    for xb, D_b in zip(boundaries, D_gb, strict=True):
         on = np.abs(coords[:, 0] - xb) < tol
         y, idx = np.unique(coords[on, 1], return_index=True)
         c = values[on][idx]
         if y.size < 2 or not np.isclose(y[-1], thickness) or not np.isclose(y[0], 0):
             raise RuntimeError(f"boundary at x = {xb:.3e} is not a full line")
-        q_front = -delta * D_gb * (c[1] - c[0]) / (y[1] - y[0])
-        q_back = -delta * D_gb * (c[-1] - c[-2]) / (y[-1] - y[-2])
+        q_front = -delta * D_b * (c[1] - c[0]) / (y[1] - y[0])
+        q_back = -delta * D_b * (c[-1] - c[-2]) / (y[-1] - y[-2])
         j = np.searchsorted(y, y_cut - tol)
-        q_cut = -delta * D_gb * (c[j] - c[j - 1]) / (y[j] - y[j - 1])
+        q_cut = -delta * D_b * (c[j] - c[j - 1]) / (y[j] - y[j - 1])
         rows.append((xb, q_front, q_back, q_cut))
     return np.array(rows)
 
@@ -328,12 +351,13 @@ def solve(case):
     mesh = micro.mesh
 
     D = lattice_diffusivity(case.temperature)
-    D_gb = case.D_ratio * D
+    # One D_gb for every boundary, or one each (in left-to-right order).
+    D_gb = D * case.ratios(boundaries.size)
     c_front = GAMMA * (1 - REFLECTION) * R_P / D
 
     grains = fm.grain_subdomains(micro, F.Material(D_0=D, E_D=0.0))
     network = fm.grain_boundary_network(
-        NETWORK_ID, micro, F.Material(D_0=D_gb, E_D=0.0)
+        NETWORK_ID, micro, None, diffusivity_by_entity=D_gb
     )
     species = [F.Species(f"c_{g.id}", subdomains=[g]) for g in grains]
     c_gb = F.Species("c_gb", subdomains=[network])

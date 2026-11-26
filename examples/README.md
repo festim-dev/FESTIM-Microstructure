@@ -29,6 +29,9 @@ cell-problem declaration across identification and validation.
   (600 K and 700 K): a cached grid scan of the transport parameters, then a
   brute-force fit of the mouth feeds and the indicator response. See
   `docs/delic2026_validation.md`.
+- `delic2026_temperature.py` fits the fraction of active boundaries against
+  temperature (300 to 600 K) with one diffusivity per boundary, checks it
+  through the full indicator, and against Kapser et al.'s total flux.
 
 ## Outputs
 

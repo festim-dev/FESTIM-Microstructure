@@ -13,9 +13,10 @@ permeation map. The three observations a grain-boundary model has to explain:
 3. At 630 K and above, in the 50 um foil, flux spreads from some boundaries
    into the grain beside them: the *permeation halo*, often on one side only.
 
-Two scripts do the comparison: `examples/delic2026_crosssection.py` (model and
-synthetic indicator) and `examples/delic2026_fit.py` (fit to digitised line
-profiles).
+Three scripts do the comparison: `examples/delic2026_crosssection.py` (model and
+synthetic indicator), `examples/delic2026_fit.py` (fit to digitised line
+profiles) and `examples/delic2026_temperature.py` (fit to the fraction of
+active boundaries against temperature).
 
 ## Model
 
@@ -106,15 +107,72 @@ detection limit, or no saturation at all) and refitting gives:
   50 um and 25 um bulk inventories, as the absence and presence of in-grain
   signal at 600 K require. They scale with the bulk-flux calibration.
 
+## Temperature series, 300 to 600 K
+
+Table 2 of the paper counts the boundary dots that discolour in the 50 um foil:
+6.6 % at 300 K, 35 % at 450 K, 36 % at 500 K, 42 and 45 % at 600 K, with no
+in-grain signal below 630 K. `examples/delic2026_temperature.py` asks what
+spread of boundaries produces that, keeping the 600 K result: closed mouths,
+strong coupling (`k = 1e-2`), and the 600 K indicator (detection 4.0e19,
+saturation 7.5e19, so a dot counts above 4.4e19 D m^-2).
+
+**Response.** Each boundary is tagged as its own entity and given its own
+`D_gb` (`diffusivity_by_entity`). In 10 random sections (87 boundaries) with
+log-uniform `lam` from 0.1 to 1000 um, a boundary dot crosses the threshold at
+`lam = 2.8 um` with almost no geometric scatter: activity is a step in
+conductance. With closed mouths and a temperature-independent bulk flux, that
+step does not depend on temperature either.
+
+**Counts.** If every boundary has `ln lam = a - dE / kT` with `dE` normal
+(`mu`, `sigma`), the active fraction is `Phi(alpha T - beta)`; if only a
+fraction `p` of the boundaries can become active at all, `p Phi(alpha T -
+beta)`. Binomial fits up to 600 K:
+
+| model | chi2 / dof | result |
+|---|---|---|
+| one population | 59 / 3 | rejected: rises too slowly from 300 to 450 K and keeps rising |
+| capable fraction | 4.8 / 2 | `p = 0.44`; half of those active at 390 K, 10 to 90 % over 230 K |
+
+Forward runs with conductances drawn from that fit, through the whole
+indicator (ten dot rows per section, per-image normalisation, 10 % threshold),
+give 12.5, 40, 40 and 50 % at 300, 450, 500 and 600 K, against 6.6, 35, 36 and
+42 to 45 %, within the sampling noise of about 54 boundaries per temperature.
+
+**What it means.**
+
+- About 44 % of the boundaries can carry D, and those switch on between
+  roughly 300 and 500 K. The rest stay shut up to 600 K. The EBSD of the
+  paper finds about 26 % low-angle and 10 % CSL boundaries, so 44 % is neither
+  "all random high-angle" (64 %) nor their complement (36 %); EBSD of the
+  imaged areas would settle which boundaries they are.
+- The counts fix only `alpha` and `beta`. Pinning the third number with the
+  600 K profile fit (active boundaries at `lam = 316 um`, or 30 um at the edge
+  of the valley) gives `dE = 0.46 +- 0.10 eV` (or `0.23 +- 0.05 eV`) above the
+  lattice, but with a prefactor `D0_gb s / D0` of about 1e9 (or 2e6). That is
+  implausible for a diffusivity, so the switch-on is more likely an entry or
+  detrapping barrier than boundary diffusion itself.
+- Above 600 K the capable population levels off at 44 % while the data climb
+  to 56 to 70 %: more boundaries join, together with the halos, which closed
+  mouths cannot make. That is the change of mechanism the authors describe.
+
+**Kapser.** The same population in 25 um sections (grains 39 +- 19 um) gives a
+total permeation of 1.0 to 1.1 times the bulk at 300 K and 1.4 (`lam = 30 um`)
+to 1.7 to 2.8 (`lam = 316 um`, two random draws) at 450 K: 40 to 180 % more
+D through the foil at 450 K than at 300 K. Kapser et al. report the two
+temperatures as indistinguishable, but give only a combined flux and their
+confidence bands graphically. Either their uncertainty is that wide, or the
+boundaries of the 25 um foil are fewer or weaker at 450 K than the 50 um
+counts imply, or the mouths are not closed at the lower temperatures. Their
+per-temperature slopes would decide it.
+
 ## Tensions and caveats
 
 - **Kapser's total flux.** On a 25 um foil whose boundaries all behave like
   the 600 K fit, the total permeation is 2 to 4.3 times the bulk, carried
-  70 to 87 % by the boundaries. Kapser's flux matched a bulk-only model and did
-  not change between 300 K and 450 K, while the active fraction of boundaries
-  rises from 7 % to 35 % over that range (Delic, Table 2). If the 600 K
-  parameters held at 450 K, that would have been visible; fitting the 300 to
-  500 K maps is the test.
+  70 to 87 % by the boundaries. With only the fitted 44 % capable and the
+  temperature series' switch-on, the model still predicts 40 to 180 % more
+  permeation at 450 K than at 300 K (see above), against Kapser's
+  "indistinguishable".
 - **Binarisation.** The paper's text describes a percentile threshold, but its
   counts and line profiles read as a threshold on the normalised range. This
   matters for counting dots, not for the line-profile fit above.
@@ -127,12 +185,12 @@ detection limit, or no saturation at all) and refitting gives:
 
 ## Next steps
 
-1. Fit the 300 to 500 K maps (Table 2: fraction of active boundaries) with a
-   distribution of mouth feeds or boundary parameters, and check it against
-   Kapser's temperature-independent total flux.
-2. EBSD of the imaged areas, which the authors say they are acquiring:
-   assign parameters by misorientation class and predict which boundaries
-   light up. The package already reads `.ctf` exports.
+1. Kapser's per-temperature permeation slopes (300 K and 450 K), to settle
+   the tension above.
+2. EBSD of the imaged areas, which the authors say they are acquiring: test
+   whether the 44 % capable boundaries are a misorientation class, then
+   assign parameters by class and predict which boundaries light up. The
+   package already reads `.ctf` exports.
 3. 3D: a foil slab with columnar grains (extruded EBSD or a Voronoi slab) and
    a 2D dot array, which needs a slab-shaped Voronoi domain and an extrusion
    of EBSD meshes.
@@ -147,6 +205,9 @@ python examples/delic2026_fit.py scan --T 600   # ~15 min
 python examples/delic2026_fit.py scan --T 700   # ~25 min, can run in parallel
 python examples/delic2026_fit.py fit            # writes fig_fit.png and fit_summary.json
 python examples/delic2026_crosssection.py       # the two illustrative studies
+python examples/delic2026_temperature.py response   # ~4 min; needs fit_summary.json
+python examples/delic2026_temperature.py fit
+python examples/delic2026_temperature.py check      # ~5 min
 ```
 
 Outputs go to `examples/results/delic2026_crosssection/`.
