@@ -13,11 +13,12 @@ permeation map. The three observations a grain-boundary model has to explain:
 3. At 630 K and above, in the 50 um foil, flux spreads from some boundaries
    into the grain beside them: the *permeation halo*, often on one side only.
 
-Four scripts do the comparison: `examples/delic2026_crosssection.py` (model and
+Five scripts do the comparison: `examples/delic2026_crosssection.py` (model and
 synthetic indicator), `examples/delic2026_fit.py` (fit to digitised line
 profiles), `examples/delic2026_temperature.py` (fit to the fraction of active
-boundaries against temperature) and `examples/delic2026_transient.py` (is
-96 h steady state, with traps).
+boundaries against temperature), `examples/delic2026_transient.py` (is 96 h
+steady state, with traps) and `examples/delic2026_3d.py` (a synthetic 3D foil
+under the hexagonal dot array).
 
 ## Model
 
@@ -226,6 +227,58 @@ Not tested: deeper or denser traps, traps in the boundaries themselves, and
 the trap evolution under the plasma that Kapser reports at 300 K. Deeper
 traps would push the non-steady range to higher temperatures.
 
+## A synthetic 3D foil
+
+Everything above is a 2D cross-section read by a line of dots.
+`examples/delic2026_3d.py` builds a 3D foil instead: a random Voronoi
+tessellation of the surface, relaxed towards equal-sized grains of the
+paper's mean size and extruded through the thickness (columnar, as the
+fractographs show for the 25 and 50 um foils), meshed with tetrahedra graded
+towards the boundaries and both surfaces. Every boundary plane is its own
+tagged entity. The microstructure is invented: it stands in for the EBSD of
+the imaged areas. The parameters are not refitted: the 600 K line-profile
+fit (`lam = 316 um`, `k = 1e-4 m/s`, mouth feed 0.13, detection 4.0e19 and
+saturation 7.5e19 D m^-2) on a random 44 % of the boundaries, the rest closed
+and non-conductive. The back surface is read by the real array: 5 um discs on
+a hexagonal grid of 10 um pitch, each collecting the lattice flux over its
+disc and the boundary outflow along the chord of trace it covers
+(`hydrogenography.hexagonal_centres`, `disc_signals`).
+
+**Check.** One planar boundary through a 3D slab is the 2D problem. Against
+the 2D cross-section on its fine mesh, the boundary outflow agrees to 0.1 %
+and the lattice flux to 0.7 % beyond 10 um from the boundary and to 2 to 4 %
+within it (the 3D surface mesh is 1.5 to 4 um). D through a mid-depth plane
+and out of the back agree to 0.1 to 0.7 % in every 3D run.
+
+**Maps at 600 K** (`fig_3d.png`, to set beside the paper's Fig. 11):
+
+- 50 um foil (21 grains, 107 000 nodes, under a minute): only dots on
+  conductive boundaries light up, and no in-grain dot does, as in Fig. 11(b).
+- 25 um foil (26 grains): grains fenced by closed boundaries glow at up to
+  0.5 of the boundary dots (median of the lit in-grain dots 0.34; the paper's
+  profile shows 0.3 to 0.45), while the lattice beside a conductive boundary
+  is dark: the inverse halo of Fig. 11(a), here as a map. Grains ringed by
+  conductive boundaries stay dark.
+- The boundaries carry 60 to 64 % of the permeation; the foils pass 1.6 to
+  1.8 times the bulk flux.
+
+**Counts.** Over six random 50 um microstructures (538 boundary dots), 43.5
++- 2.8 % of the boundary dots discolour and no in-grain dot does; Table 3
+gives 44.9 +- 2.1 % and none. That is not an independent test, since the
+44 % was fitted to those counts through the 2D model. What the 3D run adds is
+that the dot array does not bias the count: 99.7 % of the dots touching a
+conductive boundary are seen, however short the chord (the indicator
+saturates at twice its detection limit), and none of those touching only
+closed boundaries. The discoloured fraction therefore measures the
+conductive fraction of the boundary length directly, and scatters with it
+from one microstructure to the next (31 to 56 % here, for fields of about 90
+boundary dots; the paper counts about 1000).
+
+**Limits.** Which boundaries conduct is drawn at random, independently of
+their neighbours and of any misorientation; real ones will be correlated
+with grain orientation. The foil is columnar, so it says nothing about the
+100 um foil. Steady state only, which the transient runs support at 600 K.
+
 ## Tensions and caveats
 
 - **Kapser's total flux.** On a 25 um foil whose boundaries all behave like
@@ -238,8 +291,9 @@ traps would push the non-steady range to higher temperatures.
   counts and line profiles read as a threshold on the normalised range. This
   matters for counting dots, not for the line-profile fit above.
 - **Geometry.** The profiles run obliquely across the grains, so real
-  distances to the boundary are shorter than plotted; the cross-section is 2D
-  and columnar; one dot row misses boundaries that fall between dots.
+  distances to the boundary are shorter than plotted, and the fits are to a
+  2D columnar cross-section. The 3D foil removes the dot-row limitation but
+  its microstructure is synthetic.
 - **Steady state.** Holds at 600 K and above for the 25 and 50 um foils with
   Kapser's traps, and fails below (see the section above). The authors read
   the halos as B-type kinetics, a transient regime; with these traps the
@@ -255,9 +309,10 @@ traps would push the non-steady range to higher temperatures.
    whether the 44 % capable boundaries are a misorientation class, then
    assign parameters by class and predict which boundaries light up. The
    package already reads `.ctf` exports.
-3. 3D: a foil slab with columnar grains (extruded EBSD or a Voronoi slab) and
-   a 2D dot array, which needs a slab-shaped Voronoi domain and an extrusion
-   of EBSD meshes.
+3. 3D with the measured microstructure: `delic2026_3d.py` extrudes any set
+   of grain polygons, so the EBSD grain map of an imaged area can replace the
+   Voronoi one; and refit the line profiles on 3D grains, at their true
+   distances from the boundaries. A non-columnar slab for the 100 um foil.
 4. Calibration of the WO3 indicator (detection and saturation against
    temperature), which the paper flags as missing and which this fit says
    matters.
@@ -275,6 +330,9 @@ python examples/delic2026_temperature.py check      # ~5 min
 python examples/delic2026_transient.py bulk           # ~2 min
 python examples/delic2026_transient.py section        # ~15 min
 python examples/delic2026_transient.py consequences   # ~3 min; needs the two above
+python examples/delic2026_3d.py check        # ~1 min
+python examples/delic2026_3d.py foils        # ~2 min, writes fig_3d.png
+python examples/delic2026_3d.py statistics   # ~3 min
 ```
 
 Outputs go to `examples/results/delic2026_crosssection/`.

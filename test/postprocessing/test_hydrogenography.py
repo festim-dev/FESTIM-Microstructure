@@ -114,3 +114,54 @@ def test_response_is_zero_below_detection_and_saturates():
 def test_normalise_maps_an_image_onto_the_unit_interval():
     assert hg.normalise([2.0, 4.0, 3.0]).tolist() == [0.0, 1.0, 0.5]
     assert not hg.normalise([1.0, 1.0]).any()
+
+
+def test_hexagonal_centres_have_six_neighbours_at_one_pitch():
+    pattern = hg.IndicatorPattern()
+    centres = hg.hexagonal_centres(pattern, ((0.0, 100 * UM), (0.0, 100 * UM)))
+    assert np.all(centres >= pattern.diameter / 2)
+    assert np.all(centres <= 100 * UM - pattern.diameter / 2)
+    middle = centres[np.argmin(np.linalg.norm(centres - 50 * UM, axis=1))]
+    distance = np.linalg.norm(centres - middle, axis=1)
+    assert np.isclose(distance, pattern.pitch).sum() == 6
+
+
+def test_chord_lengths_are_exact():
+    centres = np.array([[0.0, 0.0], [10.0, 0.0]])
+    segments = np.array(
+        [[[-5.0, 0.0], [5.0, 0.0]], [[0.0, 0.6], [5.0, 0.6]], [[0.0, 3.0], [1.0, 3.0]]]
+    )
+    chords = hg.chord_lengths(centres, 1.0, segments)
+    assert chords[0] == pytest.approx([2.0, 0.8, 0.0])
+    assert chords[1] == pytest.approx([0.0, 0.0, 0.0])
+
+
+def test_disc_signals_average_the_flux_and_add_the_traces():
+    pattern = hg.IndicatorPattern()
+    centres = np.array([[20 * UM, 20 * UM], [40 * UM, 20 * UM]])
+    radius = pattern.diameter / 2
+
+    def uniform(points):
+        return np.full(points.shape[0], 3e14)
+
+    assert hg.disc_signals(pattern, centres, uniform, exposure=10.0) == pytest.approx(
+        [3e15, 3e15]
+    )
+
+    def half_plane(points):
+        return np.where(points[:, 0] < 20 * UM, 2.0, 0.0)
+
+    # The first dot straddles the step, so it sees half; a few percent of
+    # quadrature error from 61 points.
+    step = hg.disc_signals(pattern, centres, half_plane, exposure=1.0)
+    assert step[0] == pytest.approx(1.0, rel=0.05)
+    assert step[1] == 0.0
+    # A trace through the first dot's centre: a diameter's worth of line flux.
+    trace = np.array([[[20 * UM, 0.0], [20 * UM, 40 * UM]]])
+    q = 5e8
+    signals = hg.disc_signals(
+        pattern, centres, lambda p: np.zeros(p.shape[0]), trace, [q], exposure=1.0
+    )
+    assert signals[0] == pytest.approx(q * 2 * radius / (np.pi * radius**2))
+    assert signals[1] == 0.0
+    assert hg.on_boundary(pattern, centres, trace).tolist() == [True, False]

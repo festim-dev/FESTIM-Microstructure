@@ -35,6 +35,9 @@ cell-problem declaration across identification and validation.
 - `delic2026_transient.py` tests the steady-state assumption of the three
   scripts above with transient runs and Kapser et al.'s traps: 1D bulk, the
   cross-section with one boundary, and the consequences for the fits.
+- `delic2026_3d.py` builds a synthetic 3D foil (columnar Voronoi grains,
+  one tagged entity per boundary plane), solves it with the fitted 600 K
+  parameters and reads the back surface through the hexagonal dot array.
 
 ## Outputs
 
