@@ -56,13 +56,15 @@ The back-surface flux is then read the way the experiment reads it, through
 pitch, each integrating the lattice flux over its footprint plus any boundary
 mouth inside it, normalised per image and binarised.
 
-Parameters below are plausible, not fitted. Lattice diffusivity is Frauenfelder
-(1969); the boundary diffusivity ratio, segregation and exchange coefficient are
-free, which is the point: the counts and line profiles of the paper are what
-should pin them. Grain widths are drawn from a log-normal with the mean and
-standard deviation of their Table 1, using the surface equivalent diameter as
-the cross-section width (a section through a grain cuts a shorter chord, so
-this slightly overstates the width).
+The bulk flux is pinned to the permeation Kapser et al. (2018) measured in the
+same device (see the constants below). The boundary parameters of the two
+studies here are illustrative; ``delic2026_fit.py`` fits them, with the mouth
+feeds and the indicator response, to the paper's line profiles, and
+``docs/delic2026_validation.md`` summarises the outcome. Lattice diffusivity is
+Frauenfelder (1969) over sqrt(2) for D. Grain widths are drawn from a
+log-normal with the mean and standard deviation of their Table 1, using the
+surface equivalent diameter as the cross-section width (a section through a
+grain cuts a shorter chord, so this slightly overstates the width).
 
 Run all studies, or pick some:
 
@@ -96,15 +98,24 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "results" / Path(__file__).stem
 UM = 1e-6
 NETWORK_ID = 10_000  # above every grain id
 FRONT_ID, BACK_ID = 20_000, 30_000  # first patch id on each surface
+MOUTH_ID = 40_000  # first id of the per-boundary front mouths
 
-# Plasma (Delic et al. 2026, Sect. 3.3) and implantation.
+# Plasma (Delic et al. 2026, Sect. 3.3) and implantation. Both surfaces are
+# diffusion limited, so the bulk flux is GAMMA (1 - REFLECTION) R_P / L whatever
+# the temperature. Kapser et al. (2018), Nucl. Fusion 58 056027, measured
+# 1.7e14 D m^-2 s^-1 through 24.5 um of recrystallised W in the same device at
+# the same flux, the same at 300 K and 450 K; R_P is set to reproduce it, with
+# their SDTrimSP reflection. Their foils had boundaries too, so this is an upper
+# bound on the bulk flux: Delic et al. find 7 to 35 % of the boundaries active
+# at those temperatures.
 GAMMA = 6e19  # D m^-2 s^-1, incident ion flux
-REFLECTION = 0.5  # assumed; low-energy D on W reflects strongly
-R_P = 0.5e-9  # m, assumed implantation depth at 5 eV/D
+REFLECTION = 0.9
+KAPSER_FLUX, KAPSER_THICKNESS = 1.7e14, 24.5e-6
+R_P = KAPSER_FLUX * KAPSER_THICKNESS / (GAMMA * (1 - REFLECTION))  # 0.69 nm
 EXPOSURE = 96 * 3600.0  # s
 
-# Lattice diffusivity, Frauenfelder (1969).
-D0_LATTICE = 4.1e-7  # m^2/s
+# Lattice diffusivity of D: Frauenfelder (1969) for H, over sqrt(2), as Kapser.
+D0_LATTICE = 4.1e-7 / np.sqrt(2)  # m^2/s
 E_LATTICE = 0.39  # eV
 
 # Foils, Delic et al. 2026, Table 1: thickness, grain mean and std (m).
@@ -129,7 +140,15 @@ class Case:
     D_ratio: float = 1e5  # D_gb / D_lattice
     s: float = 1.0  # segregation, equilibrium c_gb / c_grain
     k: float = 1e-2  # m/s, grain-to-network exchange coefficient
-    m: float = 0.0  # front-mouth feed, c_gb(0) = m s c_front
+    m: float | tuple = 0.0  # front-mouth feed, c_gb(0) = m s c_front, or one per GB
+    boundaries: tuple | None = None  # GB abscissae (m); None draws them from FOILS
+
+    def feeds(self, n):
+        """The front-mouth feed of each of ``n`` boundaries."""
+        m = np.broadcast_to(np.asarray(self.m, dtype=float), (n,))
+        if np.any(m < 0):
+            raise ValueError("mouth feeds must be non-negative")
+        return m
 
     def lengths(self):
         """``(lam, ell)``, the conductance and fin lengths, in metres."""
@@ -139,7 +158,7 @@ class Case:
 
 
 def lattice_diffusivity(T):
-    """Frauenfelder's D in m^2/s."""
+    """D in W, m^2/s."""
     return D0_LATTICE * np.exp(-E_LATTICE / (F.k_B * T))
 
 
@@ -299,7 +318,10 @@ def mouth_fluxes(c_gb, network, boundaries, delta, D_gb, thickness, tol, y_cut):
 def solve(case):
     """Solve one case at steady state and read the back surface off it."""
     thickness, mean, std = FOILS[case.foil]
-    boundaries = boundary_positions(case.width, mean, std, case.h, case.seed)
+    if case.boundaries is None:
+        boundaries = boundary_positions(case.width, mean, std, case.h, case.seed)
+    else:
+        boundaries = np.round(np.asarray(case.boundaries) / case.h) * case.h
     micro, width, thickness = columnar_section(
         case.width, thickness, boundaries, case.h
     )
@@ -321,7 +343,7 @@ def solve(case):
     sources, flux_bcs = fm.exchange(
         species, c_gb, network, width=case.delta, flux=lambda cg, cn: k * (cg - cn / s)
     )
-    front, front_mouths = fm.grain_surfaces(
+    front, _ = fm.grain_surfaces(
         mesh, grains, lambda x: np.isclose(x[1], 0.0), FRONT_ID
     )
     back, back_mouths = fm.grain_surfaces(
@@ -337,14 +359,23 @@ def solve(case):
     ]
     bcs.append(F.FixedConcentrationBC(subdomain=back_mouths, value=0.0, species=c_gb))
     subdomains = [*grains, network, *front, *back, back_mouths]
-    if case.m > 0:
-        bcs.append(
-            F.FixedConcentrationBC(
-                subdomain=front_mouths, value=case.m * s * c_front, species=c_gb
-            )
+    # One mouth per boundary, so that each can be fed differently; a closed
+    # mouth (m = 0) gets no condition, i.e. no flux.
+    tdim = mesh.topology.dim
+    for i, (xb, m) in enumerate(zip(boundaries, case.feeds(boundaries.size))):
+        if m == 0:
+            continue
+        mouth = F.SurfaceSubdomain(
+            id=MOUTH_ID + i,
+            dim=tdim - 2,
+            locator=lambda x, xb=xb: (
+                np.isclose(x[1], 0.0) & (np.abs(x[0] - xb) < micro.tolerance)
+            ),
         )
-        subdomains.append(front_mouths)
-    # m = 0: no condition, i.e. no flux, at the front mouths.
+        bcs.append(
+            F.FixedConcentrationBC(subdomain=mouth, value=m * s * c_front, species=c_gb)
+        )
+        subdomains.append(mouth)
 
     model = F.HydrogenTransportProblemDiscontinuous(
         mesh=F.Mesh(mesh),
@@ -396,8 +427,14 @@ def solve(case):
     }
 
 
-def read_dots(result, pattern, mode="range", threshold=0.1):
-    """The indicator view of one solved case, with the paper's counts."""
+def read_dots(
+    result, pattern, mode="range", threshold=0.1, detection=hg.DETECTION_LIMIT
+):
+    """The indicator view of one solved case, with the paper's counts.
+
+    ``discoloured`` classifies what the camera sees, the indicator response,
+    so dots below ``detection`` sit with the background whatever the mode.
+    """
     centres, signals = hg.dot_signals(
         pattern,
         result["edges"],
@@ -406,8 +443,8 @@ def read_dots(result, pattern, mode="range", threshold=0.1):
         exposure=EXPOSURE,
     )
     on_gb = hg.on_boundary(pattern, centres, result["boundaries"])
-    discoloured = hg.classify(signals, mode, threshold)
-    above = hg.classify(signals, "absolute", hg.DETECTION_LIMIT)
+    discoloured = hg.classify(hg.response(signals, detection), mode, threshold)
+    above = hg.classify(signals, "absolute", detection)
     detected = {f"{k}_abs": v for k, v in hg.count(above, on_gb).items()}
     return {
         "centres": centres,

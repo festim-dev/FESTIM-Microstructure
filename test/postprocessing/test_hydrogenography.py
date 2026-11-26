@@ -102,3 +102,15 @@ def test_invalid_patterns_are_rejected():
         hg.IndicatorPattern(diameter=12e-6, pitch=10e-6)
     with pytest.raises(ValueError):
         hg.IndicatorPattern(rim=2.5e-6)
+
+
+def test_response_is_zero_below_detection_and_saturates():
+    g = hg.response([0.5e20, 1e20, 1.55e21, 5e21], detection=1e20, saturation=3e21)
+    assert g.tolist() == pytest.approx([0.0, 0.0, 0.5, 1.0])
+    with pytest.raises(ValueError):
+        hg.response([1.0], detection=2.0, saturation=1.0)
+
+
+def test_normalise_maps_an_image_onto_the_unit_interval():
+    assert hg.normalise([2.0, 4.0, 3.0]).tolist() == [0.0, 1.0, 0.5]
+    assert not hg.normalise([1.0, 1.0]).any()

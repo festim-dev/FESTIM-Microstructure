@@ -24,7 +24,11 @@ cell-problem declaration across identification and validation.
   indicator dots, for comparison with the patterned hydrogenography of
   Delic et al. (2026). Its two studies show the inverse permeation halo
   (closed boundary mouths, strongly coupled network) and the halo (over-fed
-  mouths, weakly coupled network). Parameters are plausible, not fitted.
+  mouths, weakly coupled network). Parameters are illustrative.
+- `delic2026_fit.py` fits that model to line profiles digitised from the paper
+  (600 K and 700 K): a cached grid scan of the transport parameters, then a
+  brute-force fit of the mouth feeds and the indicator response. See
+  `docs/delic2026_validation.md`.
 
 ## Outputs
 

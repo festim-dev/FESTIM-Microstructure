@@ -28,6 +28,12 @@ Two choices are the user's, because the papers leave them open:
 * the classification mode in :func:`classify`; the paper's text ("the lowest
   10 % of the distribution ... non-discoloured") reads as a percentile, but its
   counts are only consistent with a threshold on the normalised range.
+
+What the camera sees is not the inventory itself: :func:`response` maps it to
+a grayscale change that is zero below the indicator's detection limit and
+saturates when the layer is full, and :func:`normalise` rescales one image to
+``[0, 1]`` as the paper does. Classify the normalised response, not the raw
+inventory, when comparing with the paper's binarised maps.
 """
 
 from __future__ import annotations
@@ -41,11 +47,15 @@ __all__ = [
     "classify",
     "count",
     "dot_signals",
+    "normalise",
     "on_boundary",
+    "response",
 ]
 
 #: Detection limit of the yttrium indicator, Delic et al. 2026, Sect. 2.1.
 DETECTION_LIMIT = 1e20  # D m^-2
+#: Capacity of their 50 nm yttrium layer (full conversion to YH2), Sect. 2.1.
+SATURATION = 3e21  # D m^-2
 
 
 @dataclass(frozen=True)
@@ -133,6 +143,31 @@ def dot_signals(
     return centres, exposure * collected / width
 
 
+def response(inventory, detection=DETECTION_LIMIT, saturation=SATURATION):
+    """Grayscale change of a dot holding ``inventory`` particles per m^2.
+
+    Linear between the detection limit and saturation, as reported for
+    yttrium (Delic et al. 2026, Sect. 2.1, after their ref. [20]), and 0 below
+    the limit: a dot that has not reached it looks like the background. In
+    units of the saturated contrast, so between 0 and 1. The limit is the
+    least known number in the comparison; for the WO3 indicator it is only
+    known to be of the same order as for yttrium.
+    """
+    if not 0 <= detection < saturation:
+        raise ValueError("need 0 <= detection < saturation")
+    g = (np.asarray(inventory, dtype=float) - detection) / (saturation - detection)
+    return np.clip(g, 0.0, 1.0)
+
+
+def normalise(values):
+    """Min-max normalisation over one image, as the paper does per scan."""
+    values = np.asarray(values, dtype=float)
+    span = values.max() - values.min()
+    if span == 0:
+        return np.zeros(values.shape)
+    return (values - values.min()) / span
+
+
 def on_boundary(pattern, centres, boundaries):
     """True for every dot whose full footprint touches a grain boundary.
 
@@ -166,10 +201,7 @@ def classify(signals, mode="range", threshold=0.1):
     if mode == "percentile":
         return signals > np.quantile(signals, threshold)
     if mode == "range":
-        span = signals.max() - signals.min()
-        if span == 0:
-            return np.zeros(signals.shape, dtype=bool)
-        return (signals - signals.min()) / span > threshold
+        return normalise(signals) > threshold
     raise ValueError("mode must be 'range', 'percentile' or 'absolute'")
 
 
