@@ -13,10 +13,11 @@ permeation map. The three observations a grain-boundary model has to explain:
 3. At 630 K and above, in the 50 um foil, flux spreads from some boundaries
    into the grain beside them: the *permeation halo*, often on one side only.
 
-Three scripts do the comparison: `examples/delic2026_crosssection.py` (model and
+Four scripts do the comparison: `examples/delic2026_crosssection.py` (model and
 synthetic indicator), `examples/delic2026_fit.py` (fit to digitised line
-profiles) and `examples/delic2026_temperature.py` (fit to the fraction of
-active boundaries against temperature).
+profiles), `examples/delic2026_temperature.py` (fit to the fraction of active
+boundaries against temperature) and `examples/delic2026_transient.py` (is
+96 h steady state, with traps).
 
 ## Model
 
@@ -147,30 +148,90 @@ give 12.5, 40, 40 and 50 % at 300, 450, 500 and 600 K, against 6.6, 35, 36 and
   imaged areas would settle which boundaries they are.
 - The counts fix only `alpha` and `beta`. Pinning the third number with the
   600 K profile fit (active boundaries at `lam = 316 um`, or 30 um at the edge
-  of the valley) gives `dE = 0.46 +- 0.10 eV` (or `0.23 +- 0.05 eV`) above the
-  lattice, but with a prefactor `D0_gb s / D0` of about 1e9 (or 2e6). That is
-  implausible for a diffusivity, so the switch-on is more likely an entry or
-  detrapping barrier than boundary diffusion itself.
+  of the valley), and using the transient thresholds of the next section,
+  gives `dE = 0.31 +- 0.07 eV` (or `0.09 +- 0.02 eV`) above the lattice, with
+  a prefactor `D0_gb s / D0` of about 1e8 (or 2e5). (At steady state: 0.46 or
+  0.23 eV, prefactors 1e9 or 2e6.) Prefactors that large are implausible for a
+  diffusivity, so the switch-on is more likely an entry or detrapping barrier
+  than boundary diffusion itself.
 - Above 600 K the capable population levels off at 44 % while the data climb
   to 56 to 70 %: more boundaries join, together with the halos, which closed
   mouths cannot make. That is the change of mechanism the authors describe.
 
 **Kapser.** The same population in 25 um sections (grains 39 +- 19 um) gives a
-total permeation of 1.0 to 1.1 times the bulk at 300 K and 1.4 (`lam = 30 um`)
-to 1.7 to 2.8 (`lam = 316 um`, two random draws) at 450 K: 40 to 180 % more
-D through the foil at 450 K than at 300 K. Kapser et al. report the two
-temperatures as indistinguishable, but give only a combined flux and their
-confidence bands graphically. Either their uncertainty is that wide, or the
-boundaries of the 25 um foil are fewer or weaker at 450 K than the 50 um
-counts imply, or the mouths are not closed at the lower temperatures. Their
-per-temperature slopes would decide it.
+total permeation of 1.0 to 1.1 times the bulk at 300 K and, at 450 K, 1.3
+(`lam = 30 um`) to 2.9 (`lam = 316 um`) with the transient thresholds (1.4 to
+2.8 with the steady-state ones): 20 to 180 % more D through the foil at 450 K
+than at 300 K. Kapser et al. report the two temperatures as
+indistinguishable, but neither the paper nor Kapser's thesis (IPP 2019-01)
+gives the two slopes or their uncertainties: only the combined flux, with
+confidence bands drawn in a figure, and scatter they attribute to
+microstructure. A 20 % rise could hide in that; a 180 % rise could not. So
+either the active boundaries sit at the weak end of the 600 K valley
+(`lam` of tens of um), or the boundaries of the 25 um foil are fewer or
+weaker at 450 K than the 50 um counts imply, or the mouths are not closed at
+the lower temperatures. Their per-temperature slopes would decide it.
+
+## Is 96 h steady state?
+
+Everything above assumes, with the paper, that a dot's inventory is its
+steady flux times 96 h. `examples/delic2026_transient.py` tests that with the
+background traps of Kapser's own model of these foils: 1.5e-5 traps per W
+atom, 1.5 eV, 1e13 s^-1. Kapser fitted his permeation data only from 48 h on
+because of the time lag.
+
+**Bulk.** Those traps saturate below 500 to 550 K, and the implanted D fills
+them first. With a diffusion-limited source the filled zone crosses a foil
+of thickness `L` after `N_t L^2 / (2 Gamma (1 - r) R_p)`, whatever the
+temperature: 20 h for 25 um, 79 h for 50 um, 315 h for 100 um. 1D FESTIM
+runs (lattice plus traps) give, for the D collected by an in-grain dot after
+96 h as a fraction of the steady-state value:
+
+| foil | 300 to 500 K | 600 K | 630 to 700 K |
+|---|---|---|---|
+| 25 um | 0.79 to 0.81 | 0.98 | 1.00 |
+| 50 um | 0.17 to 0.24 | 0.92 | 0.98 to 1.00 |
+| 100 um | 0 | 0.67 | 0.91 to 1.00 |
+
+So 96 h is steady at 600 K and above in the 25 and 50 um foils, and is not
+at 500 K and below in anything thicker than 25 um. In the 100 um foil the
+lattice delivers nothing in 96 h up to 500 K.
+
+**With a boundary.** 2D runs, one boundary between two half grains of the
+50 um foil, closed mouth, the same traps in the grains (trapping and
+de-trapping both slowed a hundredfold so that the mesh resolves the filling
+front; 1D runs agree with the unscaled rates to about 1 %):
+
+- At 600 K the dots of the line-profile best fit are within 0.2 to 6 % of
+  their steady-state values in both foils, below the digitisation error. The
+  600 K and 700 K fits stand.
+- At 300 to 500 K a boundary has to fill the traps beside it before it
+  delivers, so the dot on it needs `lam = 12 um` to cross the indicator
+  threshold in 96 h, against 3.2 um at 600 K. (The boundary dots of a 300 K
+  and a 450 K run agree to 1 %: in the saturating regime temperature drops
+  out.)
+- While the traps fill, the lattice beside an active boundary breaks through
+  earlier than the grain centre: the dot 10 um away collects up to 1.5 times
+  what the centre does. That is a weak halo, but far below the detection
+  limit and nowhere near the size of the 700 K halos.
+
+**Consequences for the temperature series.** Refitting the counts with the two
+thresholds changes little: the capable fraction stays at 0.43 (chi2 4.5 for
+2 degrees of freedom), half of it active by 390 K, and the 300, 450 and
+500 K points alone, which share one threshold, still reject a single
+population (chi2 14 for 1 degree of freedom). What moves are the pinned
+energies and the Kapser prediction, both given above.
+
+Not tested: deeper or denser traps, traps in the boundaries themselves, and
+the trap evolution under the plasma that Kapser reports at 300 K. Deeper
+traps would push the non-steady range to higher temperatures.
 
 ## Tensions and caveats
 
 - **Kapser's total flux.** On a 25 um foil whose boundaries all behave like
   the 600 K fit, the total permeation is 2 to 4.3 times the bulk, carried
   70 to 87 % by the boundaries. With only the fitted 44 % capable and the
-  temperature series' switch-on, the model still predicts 40 to 180 % more
+  temperature series' switch-on, the model still predicts 20 to 180 % more
   permeation at 450 K than at 300 K (see above), against Kapser's
   "indistinguishable".
 - **Binarisation.** The paper's text describes a percentile threshold, but its
@@ -179,14 +240,17 @@ per-temperature slopes would decide it.
 - **Geometry.** The profiles run obliquely across the grains, so real
   distances to the boundary are shorter than plotted; the cross-section is 2D
   and columnar; one dot row misses boundaries that fall between dots.
-- **Steady state.** The paper's 96 h exposures are assumed steady. The authors
-  read the halos as B-type kinetics, which is a transient regime; a transient
-  run would test whether 96 h is long enough at 630 to 700 K.
+- **Steady state.** Holds at 600 K and above for the 25 and 50 um foils with
+  Kapser's traps, and fails below (see the section above). The authors read
+  the halos as B-type kinetics, a transient regime; with these traps the
+  lattice is steady within minutes to a few hours at 630 to 700 K, so the
+  transient does not make the 700 K halos.
 
 ## Next steps
 
 1. Kapser's per-temperature permeation slopes (300 K and 450 K), to settle
-   the tension above.
+   the tension above. They are not in the paper or the thesis, so this is a
+   question for the authors.
 2. EBSD of the imaged areas, which the authors say they are acquiring: test
    whether the 44 % capable boundaries are a misorientation class, then
    assign parameters by class and predict which boundaries light up. The
@@ -208,6 +272,9 @@ python examples/delic2026_crosssection.py       # the two illustrative studies
 python examples/delic2026_temperature.py response   # ~4 min; needs fit_summary.json
 python examples/delic2026_temperature.py fit
 python examples/delic2026_temperature.py check      # ~5 min
+python examples/delic2026_transient.py bulk           # ~2 min
+python examples/delic2026_transient.py section        # ~15 min
+python examples/delic2026_transient.py consequences   # ~3 min; needs the two above
 ```
 
 Outputs go to `examples/results/delic2026_crosssection/`.

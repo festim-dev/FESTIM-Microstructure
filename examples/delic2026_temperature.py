@@ -56,7 +56,7 @@ from delic2026_crosssection import (
     read_dots,
     solve,
 )
-from scipy.optimize import minimize
+from scipy.optimize import brentq, minimize
 from scipy.special import expit
 from scipy.stats import norm
 
@@ -154,21 +154,22 @@ def logistic_fit(lam, active):
     return sol.x[0], np.exp(sol.x[1])
 
 
-def fraction(T, alpha, beta, p=1.0):
-    """Active fraction at ``T``: ``p Phi(alpha T - beta)``.
+def fraction(T, alpha, beta, p=1.0, shift=0.0):
+    """Active fraction at ``T``: ``p Phi(alpha T - beta + shift)``.
 
     With ``ln lam = a - dE / kT`` and ``dE`` normal (``mu``, ``sigma``) over the
     boundaries that can carry D at all (a fraction ``p``), a boundary is active
     when ``ln lam > c``, so the fraction is ``p Phi(((a - c) k T - mu) /
     sigma)``: only ``alpha = (a - c) k / sigma`` and ``beta = mu / sigma`` can
-    be read from the counts.
+    be read from the counts. ``shift`` is ``(c - c_T) k T / sigma`` where the
+    threshold at ``T`` is ``c_T`` instead of ``c``.
     """
-    return p * norm.cdf(alpha * np.asarray(T, dtype=float) - beta)
+    return p * norm.cdf(alpha * np.asarray(T, dtype=float) - beta + shift)
 
 
-def fit_counts(capable):
-    """Binomial fit of the counts up to 600 K, with or without ``p``."""
-    T, k, n = (np.array(col, dtype=float) for col in zip(*FITTED, strict=True))
+def fit_counts(capable, rows=FITTED, shift=0.0):
+    """Binomial fit of the counts in ``rows``, with or without ``p``."""
+    T, k, n = (np.array(col, dtype=float) for col in zip(*rows, strict=True))
 
     def unpack(x):
         """``(alpha, beta, p)`` from unconstrained parameters."""
@@ -176,21 +177,21 @@ def fit_counts(capable):
 
     def nll(x):
         """Binomial negative log-likelihood."""
-        f = np.clip(fraction(T, *unpack(x)), 1e-12, 1 - 1e-12)
+        f = np.clip(fraction(T, *unpack(x), shift), 1e-12, 1 - 1e-12)
         return -np.sum(k * np.log(f) + (n - k) * np.log(1 - f))
 
     starts = itertools.product([0.005, 0.02, 0.05], [1.0, 3.0, 10.0], [-1.0, 1.0])
     sols = [minimize(nll, x0=x0, method="Nelder-Mead") for x0 in starts]
     sol = min(sols, key=lambda s: s.fun)
     alpha, beta, p = unpack(sol.x)
-    pred = fraction(T, alpha, beta, p)
+    pred = fraction(T, alpha, beta, p, shift)
     chi2 = float(np.sum((k - n * pred) ** 2 / k))  # the paper's Poisson errors
     return dict(
         alpha=float(alpha),
         beta=float(beta),
         p=float(p),
         chi2=chi2,
-        dof=len(FITTED) - (3 if capable else 2),
+        dof=len(rows) - (3 if capable else 2),
         T50=float(beta / alpha),
         T10_T90=float(2 * norm.ppf(0.9) / alpha),
         sigma_over_mu=float(1 / beta),
@@ -198,16 +199,25 @@ def fit_counts(capable):
     )
 
 
-def distribution(counts, c, lam_active_600):
+def distribution(counts, c, lam_active_600, c_600=None):
     """``(a, mu, sigma)`` in eV, pinned by the 600 K line-profile fit.
 
     The counts fix ``alpha`` and ``beta``; the third number is the median
     ``lam`` of the active (capable and above threshold) boundaries at 600 K,
-    which the profile fit puts at ``lam_active_600``.
+    which the profile fit puts at ``lam_active_600``. ``c`` is the threshold
+    ``alpha`` refers to, ``c_600`` the one at 600 K if it differs.
     """
-    u = -(counts["alpha"] * 600 - counts["beta"])  # (c - m) / s at 600 K
-    v = norm.ppf(1 - 0.5 * (1 - norm.cdf(u)))  # conditional median, in s
-    s600 = (np.log(lam_active_600 / UM) - c) / (v - u)
+    c_600 = c if c_600 is None else c_600
+    z = counts["alpha"] * 600 - counts["beta"]  # (m - c) / s at 600 K
+    target = np.log(lam_active_600 / UM) - c
+
+    def excess(s):
+        """Median of the active boundaries at 600 K, minus its target."""
+        u = (c_600 - c) / s - z  # (c_600 - m) / s
+        v = norm.ppf(1 - 0.5 * (1 - norm.cdf(u)))  # conditional median, in s
+        return s * (z + v) - target
+
+    s600 = brentq(excess, 1e-3, 1e3)
     sigma = s600 * K_B * 600
     return c + counts["alpha"] * sigma / K_B, counts["beta"] * sigma, sigma
 
@@ -273,6 +283,28 @@ def draw(rng, T, n, fitted):
     return np.clip(lam, *LAM_RANGE)
 
 
+def kapser_fluxes(fitted, n_seeds, h, rng):
+    """Total over bulk permeation of 25 um sections at 300 K and 450 K.
+
+    At steady state, which is what Kapser et al. fitted (slopes from 48 h on).
+    """
+    kapser = {}
+    for T in (300, 450):
+        ratios = []
+        for seed in range(200, 200 + n_seeds):
+            case = replace(base_case(foil=25, h=h), seed=seed, temperature=float(T))
+            _, mean, std = FOILS[case.foil]
+            n = boundary_positions(case.width, mean, std, case.h, seed).size
+            lam = draw(rng, T, n, fitted)
+            res = solve(replace(case, D_ratio=tuple(lam / DELTA)))
+            w = np.diff(res["edges"])
+            total = np.sum(res["flux"] * w) + res["mouths"][:, 2].sum()
+            ratios.append(total / (res["J_bulk"] * w.sum()))
+        kapser[T] = dict(total_over_bulk=float(np.mean(ratios)), spread=np.std(ratios))
+        print(f"{T} K, 25 um: total / bulk {np.mean(ratios):.2f}", flush=True)
+    return kapser
+
+
 def check(n_seeds, h):
     """Forward runs through the full indicator, and the Kapser comparison.
 
@@ -308,20 +340,7 @@ def check(n_seeds, h):
             hit += int((seen & on_gb).sum())
         forward[T] = dict(model=hit / on, dots_on_gb=on)
         print(f"{T} K: forward {hit / on:.1%} of {on} boundary dots", flush=True)
-    kapser = {}
-    for T in (300, 450):
-        ratios = []
-        for seed in range(200, 200 + n_seeds):
-            case = replace(base_case(foil=25, h=h), seed=seed, temperature=float(T))
-            _, mean, std = FOILS[case.foil]
-            n = boundary_positions(case.width, mean, std, case.h, seed).size
-            lam = draw(rng, T, n, fitted)
-            res = solve(replace(case, D_ratio=tuple(lam / DELTA)))
-            w = np.diff(res["edges"])
-            total = np.sum(res["flux"] * w) + res["mouths"][:, 2].sum()
-            ratios.append(total / (res["J_bulk"] * w.sum()))
-        kapser[T] = dict(total_over_bulk=float(np.mean(ratios)), spread=np.std(ratios))
-        print(f"{T} K, 25 um: total / bulk {np.mean(ratios):.2f}", flush=True)
+    kapser = kapser_fluxes(fitted, n_seeds, h, rng)
     out = dict(
         forward={
             int(T): {**v, "measured": [r[1] / r[2] for r in TABLE2 if r[0] == T]}

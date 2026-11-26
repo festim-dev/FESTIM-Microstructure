@@ -338,8 +338,13 @@ def mouth_fluxes(c_gb, network, boundaries, delta, D_gb, thickness, tol, y_cut):
     return np.array(rows)
 
 
-def solve(case):
-    """Solve one case at steady state and read the back surface off it."""
+def assemble(case):
+    """Mesh, subdomains, species, coupling and boundary conditions of a case.
+
+    Everything a FESTIM problem needs except its settings, as a dict, so that
+    the steady solve below and the transient runs of ``delic2026_transient.py``
+    declare the same physics.
+    """
     thickness, mean, std = FOILS[case.foil]
     if case.boundaries is None:
         boundaries = boundary_positions(case.width, mean, std, case.h, case.seed)
@@ -400,13 +405,43 @@ def solve(case):
             F.FixedConcentrationBC(subdomain=mouth, value=m * s * c_front, species=c_gb)
         )
         subdomains.append(mouth)
-
-    model = F.HydrogenTransportProblemDiscontinuous(
-        mesh=F.Mesh(mesh),
+    return dict(
+        micro=micro,
+        mesh=mesh,
+        width=width,
+        thickness=thickness,
+        boundaries=boundaries,
+        D=D,
+        D_gb=D_gb,
+        c_front=c_front,
+        grains=grains,
+        network=network,
+        species=species,
+        c_gb=c_gb,
         subdomains=subdomains,
-        species=[*species, c_gb],
         sources=sources,
         boundary_conditions=[*flux_bcs, *bcs],
+    )
+
+
+def solve(case):
+    """Solve one case at steady state and read the back surface off it."""
+    parts = assemble(case)
+    micro, mesh, width, thickness = (
+        parts[key] for key in ("micro", "mesh", "width", "thickness")
+    )
+    boundaries, D, D_gb, c_front = (
+        parts[key] for key in ("boundaries", "D", "D_gb", "c_front")
+    )
+    grains, network, species, c_gb = (
+        parts[key] for key in ("grains", "network", "species", "c_gb")
+    )
+    model = F.HydrogenTransportProblemDiscontinuous(
+        mesh=F.Mesh(mesh),
+        subdomains=parts["subdomains"],
+        species=[*species, c_gb],
+        sources=parts["sources"],
+        boundary_conditions=parts["boundary_conditions"],
         temperature=case.temperature,
         settings=F.Settings(atol=1e-10, rtol=1e-10, transient=False),
     )

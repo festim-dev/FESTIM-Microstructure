@@ -32,6 +32,9 @@ cell-problem declaration across identification and validation.
 - `delic2026_temperature.py` fits the fraction of active boundaries against
   temperature (300 to 600 K) with one diffusivity per boundary, checks it
   through the full indicator, and against Kapser et al.'s total flux.
+- `delic2026_transient.py` tests the steady-state assumption of the three
+  scripts above with transient runs and Kapser et al.'s traps: 1D bulk, the
+  cross-section with one boundary, and the consequences for the fits.
 
 ## Outputs
 
