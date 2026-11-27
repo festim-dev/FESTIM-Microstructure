@@ -19,6 +19,25 @@ cell-problem declaration across identification and validation.
   permeation and uptake, and generates the study figures in one run.
 - `li2022_fig4.py` and `li2022_fig4_codim.py` reproduce and compare the two
   grain-boundary formulations used for Li et al. (2022), Fig. 4.
+- `delic2026_crosssection.py` models a W foil cross-section with columnar
+  boundaries under plasma loading and reads the back surface through synthetic
+  indicator dots, for comparison with the patterned hydrogenography of
+  Delic et al. (2026). Its two studies show the inverse permeation halo
+  (closed boundary mouths, strongly coupled network) and the halo (over-fed
+  mouths, weakly coupled network). Parameters are illustrative.
+- `delic2026_fit.py` fits that model to line profiles digitised from the paper
+  (600 K and 700 K): a cached grid scan of the transport parameters, then a
+  brute-force fit of the mouth feeds and the indicator response. See
+  `docs/delic2026_validation.md`.
+- `delic2026_temperature.py` fits the fraction of active boundaries against
+  temperature (300 to 600 K) with one diffusivity per boundary, checks it
+  through the full indicator, and against Kapser et al.'s total flux.
+- `delic2026_transient.py` tests the steady-state assumption of the three
+  scripts above with transient runs and Kapser et al.'s traps: 1D bulk, the
+  cross-section with one boundary, and the consequences for the fits.
+- `delic2026_3d.py` builds a synthetic 3D foil (columnar Voronoi grains,
+  one tagged entity per boundary plane), solves it with the fitted 600 K
+  parameters and reads the back surface through the hexagonal dot array.
 
 ## Outputs
 
